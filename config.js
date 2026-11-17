@@ -15,7 +15,15 @@ window.daytime_CONFIG = {
   // "locale" follows the device (recommended). Force "24h" or "12h" if you prefer.
   timeFormat: "locale",
 
-  // First day of the week strip: "locale" follows the browser's region
+  // Public holidays (from Google's public holiday calendars, no sign-in):
+  // "auto" follows Windows' Country or region setting; or a country code such
+  // as "IN", "US", "GB"; or false to turn them off. About -> Public holidays
+  // overrides this on the PC.
+  holidays: "auto",
+  // Also mark observances: festivals and days that aren't days off.
+  holidayObservances: true,
+
+  // First day of the month calendar: "locale" follows the browser's region
   // (Monday in most of Europe, Sunday in the US), or "sunday" / "monday" / "saturday".
   weekStart: "locale",
 

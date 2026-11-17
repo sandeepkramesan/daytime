@@ -7,7 +7,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "1.5.0";
+  const VERSION = "1.6.0";
   const core = window.DaytimeCore;
   const $ = (selector, scope = document) => scope.querySelector(selector);
 
@@ -16,6 +16,7 @@
     dayNumber: $("#dayNumber"),
     month: $("#month"),
     year: $("#year"),
+    yearProgress: $("#yearProgress"),
     clock: $("#clock"),
     sunrise: $("#sunriseTime"),
     sunset: $("#sunsetTime"),
@@ -27,6 +28,7 @@
     heading: $("#agendaHeading"),
     todayButton: $("#todayButton"),
     calendarLink: $("#calendarLink"),
+    holidayList: $("#holidayList"),
     content: $("#agendaContent"),
     refresh: $("#refreshButton"),
     about: $("#aboutButton"),
@@ -49,7 +51,14 @@
   }
 
   const config = Object.assign(
-    { googleClientId: "", timeFormat: "locale", weekStart: "locale", location: null },
+    {
+      googleClientId: "",
+      timeFormat: "locale",
+      weekStart: "locale",
+      location: null,
+      holidays: "auto",
+      holidayObservances: true,
+    },
     window.daytime_CONFIG && typeof window.daytime_CONFIG === "object" ? window.daytime_CONFIG : {}
   );
 
@@ -69,6 +78,9 @@
   const CLIENT_ID_PATTERN = /^[\w-]+\.apps\.googleusercontent\.com$/i;
   const STORAGE_KEY = "daytime.clientId";
   const LOCATION_KEY = "daytime.location";
+  const HOLIDAYS_KEY = "daytime.holidays";
+  // The note keeps its own copy for a week; re-read it once a day.
+  const HOLIDAY_RELOAD_MS = 24 * 60 * 60 * 1000;
   const REQUEST_TIMEOUT_MS = 20000;
   const LIST_TTL_MS = 10 * 60 * 1000;
   // A cheap one-second tick keeps the clock exact at the minute boundary;
@@ -98,6 +110,9 @@
     taskListsFetchedAt: 0,
     connectView: "intro",
     connectError: "",
+    holidays: { region: null, id: null, byDate: null, status: "off", fetchedAt: 0 },
+    holidayRun: 0,
+    showObservances: true,
   };
 
   class RequestError extends Error {
@@ -323,8 +338,22 @@
     elements.dayNumber.textContent = formatters.day.format(selected);
     elements.month.textContent = formatters.month.format(selected);
     elements.year.textContent = formatters.year.format(selected);
+    renderYearProgress(selected);
     renderClock();
     renderSunTimes();
+  }
+
+  /** ISO week number and day of the year for the selected day. */
+  function renderYearProgress(date) {
+    if (!elements.yearProgress) return;
+    const { week } = core.isoWeek(date);
+    const day = core.dayOfYear(date);
+    const total = core.daysInYear(date.getFullYear());
+    const left = total - day;
+    elements.yearProgress.textContent = `WEEK ${week} · DAY ${day}`;
+    const label = `Week ${week}, day ${day} of ${total}, ${left} ${left === 1 ? "day" : "days"} left in the year`;
+    elements.yearProgress.setAttribute("aria-label", label);
+    elements.yearProgress.title = `${label} (ISO 8601 week)`;
   }
 
   function renderClock() {
@@ -455,6 +484,14 @@
         `${longDay(date)}${isToday ? ", today" : ""}${isSelected && !isToday ? ", selected" : ""}`
       );
 
+      const holidays = holidaysOn(key);
+      if (holidays.length) {
+        const names = holidays.map((holiday) => holiday.name).join(", ");
+        button.classList.add(holidays[0].kind === "public" ? "is-holiday" : "is-observance");
+        button.title = names;
+        button.setAttribute("aria-label", `${button.getAttribute("aria-label")}, ${names}`);
+      }
+
       if (date.getMonth() !== selected.getMonth()) button.classList.add("is-outside");
       if (isToday) {
         button.classList.add("is-today");
@@ -490,6 +527,7 @@
     renderHero();
     renderMonth();
     renderHeading();
+    renderHolidays();
 
     if (isConnected()) {
       if (!renewSessionIfNeeded()) loadAgenda();
@@ -513,6 +551,152 @@
 
   function shiftMonth(amount) {
     selectDate(addMonths(state.selectedDate, amount));
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Public holidays
+   *
+   * From Google's public holiday calendar for the chosen country, read
+   * through the local server (/holidays/<id>.ics), which needs no Google
+   * sign-in. The country follows Windows' "Country or region" setting unless
+   * one is picked in About or set in config.js.
+   * ------------------------------------------------------------------ */
+
+  const HOLIDAY_KIND_LABELS = { public: "HOLIDAY", regional: "REGIONAL", observance: "OBSERVANCE" };
+
+  function readHolidayPrefs() {
+    try {
+      const value = JSON.parse(localStorage.getItem(HOLIDAYS_KEY) || "{}");
+      return value && typeof value === "object" ? value : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeHolidayPrefs(changes) {
+    try {
+      localStorage.setItem(HOLIDAYS_KEY, JSON.stringify({ ...readHolidayPrefs(), ...changes }));
+    } catch {
+      /* Storage unavailable; the choice lasts for this session. */
+    }
+  }
+
+  function validRegion(value) {
+    return typeof value === "string" && /^[A-Za-z]{2}$/.test(value) ? value.toUpperCase() : null;
+  }
+
+  /** The country this PC is set to: Windows' setting (from the note), else the browser language's region. */
+  function detectedRegion() {
+    const fromShell = validRegion(new URLSearchParams(location.search).get("region"));
+    if (fromShell) return fromShell;
+    const languages = [].concat(navigator.languages || [], navigator.language || []);
+    for (const tag of languages) {
+      try {
+        const region = validRegion(new Intl.Locale(tag).region);
+        if (region) return region;
+      } catch {
+        /* Not a valid language tag. */
+      }
+    }
+    return null;
+  }
+
+  function resolveHolidayRegion() {
+    const choice = readHolidayPrefs().region;
+    if (choice === "off") return null;
+    if (validRegion(choice)) return validRegion(choice);
+    if (config.holidays === false || config.holidays === "off") return null;
+    return validRegion(config.holidays) || detectedRegion();
+  }
+
+  function resolveShowObservances() {
+    const choice = readHolidayPrefs().observances;
+    return typeof choice === "boolean" ? choice : config.holidayObservances !== false;
+  }
+
+  function regionName(code) {
+    try {
+      return new Intl.DisplayNames(undefined, { type: "region" }).of(code) || code;
+    } catch {
+      return code;
+    }
+  }
+
+  function holidaysOn(key) {
+    const list = (state.holidays.byDate && state.holidays.byDate[key]) || [];
+    return state.showObservances ? list : list.filter((holiday) => holiday.kind !== "observance");
+  }
+
+  function holidayStatusText() {
+    const { region, id, status } = state.holidays;
+    if (!region) return "No holidays are marked.";
+    if (!id) return `Google has no holiday calendar for ${regionName(region)}. Pick another country.`;
+    if (status === "loading") return "Loading…";
+    if (status === "error") return "Couldn’t download the holidays. Check the connection, then pick the country again.";
+    return "From Google’s public holiday calendar; no sign-in needed.";
+  }
+
+  async function loadHolidays() {
+    const run = (state.holidayRun += 1);
+    const region = resolveHolidayRegion();
+    const id = core.holidayCalendarId(region);
+    state.showObservances = resolveShowObservances();
+    state.holidays = { region, id, byDate: null, status: id ? "loading" : "off", fetchedAt: 0 };
+    renderMonth();
+    renderHolidays();
+    renderHolidayStatus();
+    if (!id) return;
+
+    try {
+      const response = await fetch(`./holidays/${id}.ics`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const byDate = core.parseHolidayCalendar(await response.text());
+      if (run !== state.holidayRun) return;
+      state.holidays = { region, id, byDate, status: "ready", fetchedAt: Date.now() };
+    } catch (error) {
+      if (run !== state.holidayRun) return;
+      console.warn("daytime: public holidays couldn't load", error);
+      state.holidays.status = "error";
+    }
+    renderMonth();
+    renderHolidays();
+    renderHolidayStatus();
+  }
+
+  /** Holidays for the selected day, as a strip above the agenda. */
+  function renderHolidays() {
+    if (!elements.holidayList) return;
+    const holidays = holidaysOn(core.localDateKey(state.selectedDate));
+    elements.holidayList.hidden = holidays.length === 0;
+    elements.holidayList.innerHTML = holidays
+      .map((holiday) => {
+        const detail = [holiday.note && `Public holiday in ${holiday.note}`, holiday.tentative && "Date is tentative"]
+          .filter(Boolean)
+          .join(". ");
+        return `<li class="holiday is-${holiday.kind}"${detail ? ` title="${core.escapeHTML(detail)}"` : ""}>
+          <span class="holiday-name">${core.escapeHTML(holiday.name)}</span>
+          <span class="holiday-kind">${HOLIDAY_KIND_LABELS[holiday.kind]}${holiday.tentative ? " ?" : ""}</span>
+        </li>`;
+      })
+      .join("");
+  }
+
+  function renderHolidayStatus() {
+    const target = elements.aboutDialog.open ? $("#aboutHolidays", elements.aboutBody) : null;
+    if (target) target.textContent = holidayStatusText();
+  }
+
+  function setHolidayRegion(value) {
+    writeHolidayPrefs({ region: value === "auto" ? undefined : value });
+    loadHolidays();
+    announce(value === "off" ? "Public holidays turned off." : "Public holidays updated.");
+  }
+
+  function setShowObservances(show) {
+    writeHolidayPrefs({ observances: show });
+    state.showObservances = show;
+    renderMonth();
+    renderHolidays();
   }
 
   /* ------------------------------------------------------------------ *
@@ -1177,12 +1361,31 @@
         : `${state.location.latitude.toFixed(2)}, ${state.location.longitude.toFixed(2)}`
       : "Not set";
 
+    const prefs = readHolidayPrefs();
+    const choice = prefs.region === "off" ? "off" : validRegion(prefs.region) || "auto";
+    const detected = validRegion(config.holidays) || detectedRegion();
+    const countries = [...core.HOLIDAY_REGIONS]
+      .map((code) => ({ code, name: regionName(code) }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    const option = (value, label) =>
+      `<option value="${value}"${value === choice ? " selected" : ""}>${core.escapeHTML(label)}</option>`;
+
     elements.aboutBody.innerHTML = `
       <dl class="about-rows">
         <div class="about-row"><dt>Google Calendar</dt><dd class="${connected ? "" : "muted"}">${core.escapeHTML(access)}</dd></div>
         <div class="about-row"><dt>Location</dt><dd class="${state.location ? "" : "muted"}">${core.escapeHTML(locationText)}</dd></div>
       </dl>
-      <p>daytime keeps your Google token in memory only. Events and tasks are read when you open a day and are never written here. Sunrise and sunset are calculated on this device; if you share your location, a rounded copy is remembered in this browser only and never sent anywhere.</p>
+      <div class="field">
+        <label for="holidayRegion">Public holidays</label>
+        <select id="holidayRegion" data-about-setting="holiday-region">
+          ${option("auto", detected ? `Automatic (${regionName(detected)})` : "Automatic")}
+          ${option("off", "Off")}
+          ${countries.map((country) => option(country.code, country.name)).join("")}
+        </select>
+        <p class="field-hint" id="aboutHolidays" role="status">${core.escapeHTML(holidayStatusText())}</p>
+        <label class="check"><input type="checkbox" data-about-setting="observances"${state.showObservances ? " checked" : ""} /> Show observances too (festivals and days that aren’t days off)</label>
+      </div>
+      <p>daytime keeps your Google token in memory only. Events and tasks are read when you open a day and are never written here. Sunrise and sunset are calculated on this device; if you share your location, a rounded copy is remembered in this browser only and never sent anywhere. Public holidays come from Google’s public holiday calendar for the country you pick, without signing in.</p>
       <div class="sheet-actions">
         ${signedIn ? '<button class="button" type="button" data-about-action="switch-account">Switch Google account</button>' : ""}
         ${signedIn ? '<button class="button" type="button" data-about-action="sign-out">Sign out</button>' : ""}
@@ -1238,6 +1441,12 @@
     else if (action === "switch-account") switchAccount();
     else if (action === "forget-location") forgetLocation();
     else if (action === "close") elements.aboutDialog.close();
+  });
+
+  elements.aboutBody.addEventListener("change", (event) => {
+    const setting = event.target && event.target.dataset ? event.target.dataset.aboutSetting : "";
+    if (setting === "holiday-region") setHolidayRegion(event.target.value);
+    else if (setting === "observances") setShowObservances(Boolean(event.target.checked));
   });
 
   function forgetLocation() {
@@ -1335,11 +1544,13 @@
       state.selectedDate = core.startOfLocalDay(new Date());
       renderHero();
       renderHeading();
+      renderHolidays();
       if (isConnected()) loadAgenda();
       announce(`A new day. ${longDay(state.selectedDate)}.`);
     }
     renderWeekLabels();
     renderMonth();
+    if (state.holidays.id && Date.now() - state.holidays.fetchedAt > HOLIDAY_RELOAD_MS) loadHolidays();
   }
 
   function clearOldServiceWorkers() {
@@ -1404,6 +1615,7 @@
     renderWelcome();
     resolveCity(state.location);
     setLocationButton(state.location ? "ready" : "idle");
+    loadHolidays();
     wireDesktopShell();
 
     document.addEventListener("visibilitychange", () => {

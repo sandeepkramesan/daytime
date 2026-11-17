@@ -115,7 +115,8 @@ button { color: inherit; }
 .day-number { margin: 0 0 -10px -4px; font-size: clamp(88px, 24vw, 102px); font-weight: 500; line-height: .98; letter-spacing: -.09em; }
 .date-meta { position: absolute; left: 50%; bottom: 14px; z-index: 1; width: max-content; padding-bottom: 2px; transform: translateX(-50%); text-align: center; }
 .month { margin: 0; font-size: 16px; font-weight: 500; letter-spacing: -.04em; }
-.year { margin: 1px 0 17px; color: var(--muted); font-size: 12px; }
+.year { margin: 1px 0 3px; color: var(--muted); font-size: 12px; }
+.year-progress { margin: 0 0 11px; color: var(--quiet); font-size: 9px; letter-spacing: .08em; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .clock { margin: 0; font-size: 20px; letter-spacing: -.06em; font-variant-numeric: tabular-nums; }
 /* A 12-hour clock carries "am/pm", so it needs one step down to stay clear of the big date. */
 .widget.uses-12h .clock { font-size: 17px; letter-spacing: -.04em; }
@@ -148,6 +149,7 @@ button { color: inherit; }
 .week-labels { margin-bottom: 3px; color: #8292a3; font-size: 10px; }
 .month-days { row-gap: 2px; }
 .month-days button {
+  position: relative;
   width: 100%;
   max-width: 36px;
   height: 26px;
@@ -163,6 +165,22 @@ button { color: inherit; }
 .month-days button:hover { background: #1d1d1d; }
 /* Days from the previous/next month fill the first and last rows, quietly. */
 .month-days button.is-outside { color: #4d4d4d; }
+/* Public holidays get the one red dot; observances a grey one. */
+.month-days button.is-holiday::after,
+.month-days button.is-observance::after {
+  content: "";
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  margin-left: -1.5px;
+  border-radius: 50%;
+  background: var(--red);
+}
+.month-days button.is-observance::after { background: #6f6f6f; }
+.month-days button.is-outside::after { opacity: .45; }
+.month-days button.is-today.is-observance::after { background: #8a8a8a; }
 /* Today is the white pill the design calls for; a selected other day is a ring. */
 .month-days button.is-today { background: var(--text); color: #111; font-weight: 600; }
 .month-days button.is-selected:not(.is-today) { box-shadow: inset 0 0 0 1.5px var(--text); color: #fff; }
@@ -189,6 +207,15 @@ button { color: inherit; }
 .today-link:hover { border-color: #626262; color: #fff; }
 .calendar-link { color: #93a6b9; font-size: 11px; text-decoration: none; white-space: nowrap; }
 .calendar-link:hover { color: #fff; }
+
+.holiday-list { display: grid; flex: 0 0 auto; gap: 5px; margin: 0; padding: 11px 0 0; list-style: none; }
+.holiday { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 12px; }
+.holiday::before { content: ""; flex: 0 0 auto; width: 5px; height: 5px; border-radius: 50%; background: var(--red); transform: translateY(-1px); }
+.holiday.is-regional::before { background: transparent; box-shadow: inset 0 0 0 1px var(--red); }
+.holiday.is-observance::before { background: #6f6f6f; }
+.holiday-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.holiday.is-observance .holiday-name { color: #c9c9c9; }
+.holiday-kind { flex: 0 0 auto; color: var(--quiet); font-size: 9px; letter-spacing: .08em; }
 
 .agenda-content {
   flex: 1 1 auto;
@@ -322,7 +349,8 @@ html.shell .agenda-content::-webkit-scrollbar { width: 4px !important; }
 .button:disabled { cursor: progress; opacity: .6; }
 .field { display: grid; gap: 7px; }
 .field label { color: var(--cool); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
-.field input {
+.field input,
+.field select {
   min-height: 44px;
   padding: 0 12px;
   border: 1px solid var(--line-strong);
@@ -331,7 +359,10 @@ html.shell .agenda-content::-webkit-scrollbar { width: 4px !important; }
   color: var(--text);
   font-size: 13px;
 }
-.field input:focus-visible { outline-offset: 1px; }
+.field input:focus-visible, .field select:focus-visible { outline-offset: 1px; }
+.field select { width: 100%; font-family: inherit; color-scheme: dark; }
+.field .check { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 11px; letter-spacing: 0; line-height: 1.5; text-transform: none; cursor: pointer; }
+.field .check input { min-height: 0; margin: 2px 0 0; accent-color: var(--text); }
 .field-hint { margin: 0; color: var(--quiet); font-size: 11px; line-height: 1.6; }
 .sheet-body .field-hint { color: var(--quiet); font-size: 11px; }
 .field-hint a { color: var(--cool); }

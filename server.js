@@ -17,7 +17,7 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
-const { publicPath, isAllowedHost } = require("./public-files.js");
+const { publicPath, isAllowedHost, holidayIdFromPath, googleHolidayUrl } = require("./public-files.js");
 
 const ROOT = __dirname;
 const PORT = Number.parseInt(process.env.PORT || "4173", 10);
@@ -49,7 +49,37 @@ function send(res, status, body, headers = {}) {
   res.end(body);
 }
 
-function handleRequest(request, response) {
+const HOLIDAY_TTL_MS = 12 * 60 * 60 * 1000;
+const defaultHolidayCache = new Map();
+
+async function fetchGoogleHolidays(id) {
+  const response = await fetch(googleHolidayUrl(id), { signal: AbortSignal.timeout(15000) });
+  if (!response.ok) throw new Error(`Google answered ${response.status}`);
+  const text = await response.text();
+  if (!text.startsWith("BEGIN:VCALENDAR")) throw new Error("not a calendar");
+  return text;
+}
+
+async function sendHolidays(response, id, { fetchHolidays = fetchGoogleHolidays, cache = defaultHolidayCache } = {}) {
+  const cached = cache.get(id);
+  let text = cached && Date.now() - cached.at < HOLIDAY_TTL_MS ? cached.text : null;
+  if (!text) {
+    try {
+      text = await fetchHolidays(id);
+      cache.set(id, { text, at: Date.now() });
+    } catch (error) {
+      // An older copy beats nothing when offline.
+      text = cached ? cached.text : null;
+      if (!text) {
+        send(response, 502, `Holiday calendar unavailable: ${error.message}`);
+        return;
+      }
+    }
+  }
+  send(response, 200, text, { "Content-Type": "text/calendar; charset=utf-8" });
+}
+
+function handleRequest(request, response, options = {}) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     send(response, 405, "Method not allowed", { Allow: "GET, HEAD" });
     return;
@@ -65,6 +95,12 @@ function handleRequest(request, response) {
     pathname = decodeURIComponent(new URL(request.url, "http://127.0.0.1").pathname);
   } catch {
     send(response, 400, "Bad request");
+    return;
+  }
+
+  const holidayId = holidayIdFromPath(pathname);
+  if (holidayId) {
+    sendHolidays(response, holidayId, options);
     return;
   }
 
@@ -106,8 +142,10 @@ function handleRequest(request, response) {
     .pipe(response);
 }
 
-function createServer() {
-  return http.createServer(handleRequest);
+/** `options.fetchHolidays(id)` replaces the Google download (tests). */
+function createServer(options = {}) {
+  const settings = { cache: new Map(), ...options };
+  return http.createServer((request, response) => handleRequest(request, response, settings));
 }
 
 module.exports = { createServer, handleRequest };

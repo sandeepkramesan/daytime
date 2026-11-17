@@ -8,7 +8,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const http = require("node:http");
-const { publicPath, isAllowedHost } = require("../public-files.js");
+const { publicPath, isAllowedHost, holidayIdFromPath } = require("../public-files.js");
 const { createServer } = require("../server.js");
 const { readVersions } = require("../tools/sync-version.js");
 
@@ -85,5 +85,67 @@ test("the dev server refuses secrets, traversal and foreign Host headers", async
 test("app.js carries the package.json version", () => {
   for (const result of readVersions()) {
     assert.equal(result.actual, result.expected, `${result.file} — run npm run sync-version`);
+  }
+});
+
+test("holidayIdFromPath only accepts Google holiday calendar names", () => {
+  assert.equal(holidayIdFromPath("/holidays/en.indian.ics"), "en.indian");
+  assert.equal(holidayIdFromPath("/holidays/en.new_zealand.ics"), "en.new_zealand");
+  for (const blocked of [
+    "/holidays/en.indian",
+    "/holidays/../config.js",
+    "/holidays/en.indian.ics/x",
+    "/holidays/en.x%23y.ics",
+    "/holidays/en.evil.example.ics",
+    "/holidays/https://evil.example/x.ics",
+    "/holidays/EN.INDIAN.ics",
+    "/holidays/en.indian.ics\n",
+  ]) {
+    assert.equal(holidayIdFromPath(blocked), null, blocked);
+  }
+});
+
+function get(port, pathname, host = `127.0.0.1:${port}`) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { host: "127.0.0.1", port, path: pathname, method: "GET", headers: { Host: host } },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => (body += chunk));
+        res.on("end", () => resolve({ status: res.statusCode, type: res.headers["content-type"], body }));
+      }
+    );
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+test("the dev server relays one Google holiday calendar and caches it", async () => {
+  const requested = [];
+  const server = createServer({
+    fetchHolidays: async (id) => {
+      requested.push(id);
+      if (id === "en.usa") throw new Error("offline");
+      return "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n";
+    },
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  try {
+    const first = await get(port, "/holidays/en.indian.ics");
+    assert.equal(first.status, 200);
+    assert.match(first.type, /^text\/calendar/);
+    assert.match(first.body, /^BEGIN:VCALENDAR/);
+    assert.equal((await get(port, "/holidays/en.indian.ics")).status, 200);
+    assert.deepEqual(requested, ["en.indian"]);
+
+    assert.equal((await get(port, "/holidays/en.usa.ics")).status, 502);
+    assert.equal((await get(port, "/holidays/evil.ics")).status, 404);
+    assert.equal((await get(port, "/holidays/en.indian.ics", "attacker.example")).status, 421);
+    assert.deepEqual(requested, ["en.indian", "en.usa"]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
   }
 });

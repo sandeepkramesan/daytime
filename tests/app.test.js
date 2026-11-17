@@ -407,3 +407,117 @@ test("month arrows move a month and clamp the day (31 Jan -> end of Feb)", () =>
   const selected = harness.query("#monthDays").children.find((day) => day.classList.contains("is-selected"));
   assert.equal(selected.dataset.date, "2027-01-28");
 });
+
+function text(body, status = 200) {
+  return { ok: status >= 200 && status < 300, status, text: async () => body };
+}
+
+function holidayFeed(dayKey) {
+  const date = dayKey.replaceAll("-", "");
+  return [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    `DTSTART;VALUE=DATE:${date}`,
+    "DESCRIPTION:Public holiday",
+    "SUMMARY:Founders\\, Day",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    `DTSTART;VALUE=DATE:${date}`,
+    "DESCRIPTION:Observance\\nTo hide observances\\, go to Google Calendar Settings",
+    "SUMMARY:Kite <Festival>",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+}
+
+function holidayFetch(dayKey) {
+  return async (url) => (url.includes("/holidays/") ? text(holidayFeed(dayKey)) : json({}));
+}
+
+function changeSetting(harness, setting, values) {
+  harness.query("#aboutBody").dispatch("change", { target: { dataset: { aboutSetting: setting }, ...values } });
+}
+
+test("public holidays for Windows' country mark the month and the day", async () => {
+  const todayKey = localKey(new Date());
+  const harness = createHarness({ search: "?shell=desktop&region=IN", fetch: holidayFetch(todayKey) });
+  await wait(20);
+
+  assert.ok(harness.calls.includes("./holidays/en.indian.ics"));
+  const today = harness.query("#monthDays").children.find((day) => day.dataset.date === todayKey);
+  assert.ok(today.classList.contains("is-holiday"));
+  assert.match(today.title, /Founders, Day/);
+  assert.match(today.getAttribute("aria-label"), /Founders, Day/);
+
+  const list = harness.query("#holidayList");
+  assert.equal(list.hidden, false);
+  assert.match(list.innerHTML, /Founders, Day/);
+  assert.match(list.innerHTML, /Kite &lt;Festival&gt;/);
+  assert.doesNotMatch(list.innerHTML, /<Festival>/);
+});
+
+test("observances can be hidden, and holidays turned off, from About", async () => {
+  const todayKey = localKey(new Date());
+  const harness = createHarness({ search: "?region=IN", fetch: holidayFetch(todayKey) });
+  await wait(20);
+
+  changeSetting(harness, "observances", { checked: false });
+  assert.doesNotMatch(harness.query("#holidayList").innerHTML, /Kite/);
+  assert.match(harness.query("#holidayList").innerHTML, /Founders/);
+
+  changeSetting(harness, "holiday-region", { value: "off" });
+  await wait(20);
+  assert.equal(harness.query("#holidayList").hidden, true);
+  const today = harness.query("#monthDays").children.find((day) => day.dataset.date === todayKey);
+  assert.equal(today.classList.contains("is-holiday"), false);
+  assert.deepEqual(JSON.parse(harness.store.get("daytime.holidays")), { observances: false, region: "off" });
+  assert.equal(harness.calls.filter((call) => call.includes("/holidays/")).length, 1);
+});
+
+test("a country picked in About or config.js wins over Windows' setting", async () => {
+  const todayKey = localKey(new Date());
+  const picked = createHarness({
+    search: "?region=IN",
+    storage: { "daytime.holidays": JSON.stringify({ region: "GB" }) },
+    fetch: holidayFetch(todayKey),
+  });
+  const configured = createHarness({ search: "?region=IN", config: { holidays: "us" }, fetch: holidayFetch(todayKey) });
+  const browser = createHarness({ navigator: { languages: ["en-NZ", "en"] }, fetch: holidayFetch(todayKey) });
+  const unsupported = createHarness({ search: "?region=IL", fetch: holidayFetch(todayKey) });
+  const off = createHarness({ search: "?region=IN", config: { holidays: false }, fetch: holidayFetch(todayKey) });
+  await wait(20);
+
+  assert.ok(picked.calls.includes("./holidays/en.uk.ics"));
+  assert.ok(configured.calls.includes("./holidays/en.usa.ics"));
+  assert.ok(browser.calls.includes("./holidays/en.new_zealand.ics"));
+  for (const harness of [unsupported, off]) {
+    assert.equal(harness.calls.filter((call) => call.includes("/holidays/")).length, 0);
+    assert.equal(harness.query("#holidayList").hidden, true);
+  }
+});
+
+test("a failed holiday download leaves the calendar working", async () => {
+  const harness = createHarness({
+    search: "?region=IN",
+    fetch: async (url) => (url.includes("/holidays/") ? text("Holiday calendar unavailable", 502) : json({})),
+  });
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    await wait(20);
+  } finally {
+    console.warn = warn;
+  }
+  assert.equal(harness.query("#holidayList").hidden, true);
+  assert.equal(harness.query("#monthDays").children.length % 7, 0);
+});
+
+test("the week number and day of the year follow the selected day", () => {
+  const harness = createHarness();
+  clickDay(harness, new Date(2027, 0, 1));
+  assert.equal(harness.query("#yearProgress").textContent, "WEEK 53 · DAY 1");
+  assert.match(harness.query("#yearProgress").getAttribute("aria-label"), /day 1 of 365, 364 days left/);
+
+  clickDay(harness, new Date(2028, 11, 31));
+  assert.equal(harness.query("#yearProgress").textContent, "WEEK 52 · DAY 366");
+});

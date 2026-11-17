@@ -1,6 +1,6 @@
 # daytime
 
-A desktop sticky note for Windows: live clock, date, sunrise and sunset, a month calendar, and the day's Google Calendar events and tasks. Nothing design language — black glass, thin lines, big light numerals, one red accent.
+A desktop sticky note for Windows: live clock, date, week number, sunrise and sunset, a month calendar with public holidays, and the day's Google Calendar events and tasks. Nothing design language — black glass, thin lines, big light numerals, one red accent.
 
 It is a small (about 100 KB) native app (WinForms + the Edge **WebView2** runtime that ships with Windows 10/11). No Electron, no Node, no installer framework.
 
@@ -21,7 +21,7 @@ From a terminal, the same entry point takes a command:
 | `daytime uninstall` | `npm run uninstall-app` | Remove the installed copy, its shortcut and the startup entry |
 | `daytime build` | `npm run build` | Rebuild `desktop\DaytimeNote.exe` |
 
-Options: `-NoStartup` and `-NoLaunch` for `install`; `-Fresh` for `install` or `uninstall` also deletes the WebView2 profile (Google sign-in and cache, in `%APPDATA%\daytime-desktop`).
+Options: `-NoStartup` and `-NoLaunch` for `install`; `-Fresh` for `install` or `uninstall` also deletes the WebView2 profile and saved data (Google sign-in, cache and the holiday lists, in `%APPDATA%\daytime-desktop`).
 
 Use **`daytime install`** for everyday use: the installed copy no longer depends on this folder, and re-running it updates the installed copy in place.
 
@@ -37,10 +37,20 @@ Requirements: Windows 10 or 11 with the **WebView2 runtime** (preinstalled on Wi
 - **—** hides it to the tray; click the tray icon to bring it back. **×** quits.
 - Tray menu: show/hide, always on top, start with Windows, reset position, quit.
 - The **month calendar** shows the whole month; **‹ ›** move a month at a time, and clicking a day shows its agenda. **Today** jumps back. With the keyboard: arrows move by day or week, Page Up/Down by month, Home to today.
+- Under the year, **WEEK 47 · DAY 322** gives the ISO 8601 week number and the day of the year for the selected day; hover it for the days left in the year.
+- **Public holidays** get a red dot in the month calendar and are listed above the selected day's agenda. Observances (festivals and days that aren't days off) get a grey dot. Hover a day to see its name.
 - The day's events and tasks scroll on their own when they don't fit; the rest of the note stays put.
 - **↻** next to *Google Calendar* refreshes the day's events.
 - **↻** under sunrise and sunset uses (or refreshes) this PC's location; the times are calculated on the device.
 - Diagnostics: `desktop\boot.log` (or `boot.log` next to the installed exe).
+
+---
+
+## Public holidays
+
+Holidays come from Google's public holiday calendars, which cover about 245 countries for several years ahead and need **no Google sign-in**. The country follows Windows' **Settings → Time & language → Language & region → Country or region**. To pick another one, or turn holidays off, use **ⓘ → Public holidays**; the same sheet can hide observances.
+
+Google's holiday feed can't be read by a web page directly, so the note downloads it through its local server (`/holidays/<calendar>.ics`, only from `calendar.google.com`) and keeps a copy for a week in `%APPDATA%\daytime-desktop\holidays`, which it also uses when offline. Holidays are general to the country; regional ones say which states they apply to when you hover them.
 
 ---
 
@@ -72,6 +82,7 @@ The Calendar scopes are *sensitive* in Google's terms: until the OAuth app is ve
 | Only the primary calendar shows | Reconnect and allow access to the list of your calendars |
 | "Google hasn't verified this app" | Expected until verification; test users can choose Advanced → continue |
 | Sunrise stays `--:--` | Click **↻** under the sunset time, or set `location` in `config.js` |
+| No holidays, or the wrong country's | **ⓘ → Public holidays** shows the status; pick the country. The first download needs an internet connection |
 | Note does not appear | Read `desktop\boot.log`; launch from Explorer rather than a sandboxed terminal |
 
 ---
@@ -83,6 +94,8 @@ The Calendar scopes are *sensitive* in Google's terms: until the OAuth app is ve
 - `googleClientId` — default OAuth client ID.
 - `timeFormat` — `"locale"`, `"24h"` or `"12h"`.
 - `weekStart` — first column of the month calendar: `"locale"` (follows your region), `"sunday"`, `"monday"` or `"saturday"`.
+- `holidays` — `"auto"` (Windows' country), a country code such as `"IN"`, `"US"` or `"GB"`, or `false`. A choice made in **ⓘ → Public holidays** overrides it on that PC.
+- `holidayObservances` — `true` to also mark observances, `false` for days off only.
 - `location` — fixed `{ latitude, longitude }` so sunrise/sunset work without asking.
 
 ---
@@ -93,6 +106,7 @@ The Calendar scopes are *sensitive* in Google's terms: until the OAuth app is ve
 - The note's built-in server listens on `127.0.0.1` only, serves only the app's own files, and refuses requests addressed to any other host name.
 - A Content-Security-Policy limits scripts to the app and Google sign-in, and network requests to the Google APIs it reads.
 - **Location** is requested only when you click the location **↻**. A copy rounded to ~1 km is remembered on this PC; **About → Forget location** removes it. The nearest city comes from `cities.js`, a bundled extract of [GeoNames](https://www.geonames.org/) `cities15000` (CC BY 4.0). Nothing is sent to a geocoding service.
+- **Holidays** are downloaded from Google's public holiday calendar for the chosen country, without your account; the request reveals only which country's list is wanted.
 - No web fonts or analytics: the UI uses Inter if installed, otherwise Segoe UI.
 
 ---
@@ -110,15 +124,15 @@ Quit the note before `npm run dev`; both use port 4173. To release a new version
 daytime.cmd                 the one entry point: run, build, install, uninstall
 desktop/
   daytime.ps1               what daytime.cmd runs
-  DaytimeNote.cs            the native window, tray, and local file server
+  DaytimeNote.cs            the native window, tray, local file server and holiday download
   *.dll                     WebView2 SDK libraries (Microsoft, redistributable)
 index.html, styles.css      UI
-app.js, core.js             behaviour; pure date and sun maths
+app.js, core.js             behaviour; pure date, sun and holiday-feed maths
 cities.js                   offline nearest-city list
 config.js                   settings
 logo.svg                    mark shown in the UI
 desktop/daytime.ico         app icon (Start, shortcuts, tray)
-public-files.js, server.js  file allowlist and the browser dev server
+public-files.js, server.js  file allowlist, holiday route and the browser dev server
 tests/, tools/              tests and the version script
 ```
 

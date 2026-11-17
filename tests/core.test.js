@@ -130,3 +130,95 @@ test("isDate rejects invalid dates", () => {
   assert.equal(core.isDate(new Date("nope")), false);
   assert.equal(core.isDate(0), false);
 });
+
+test("isoWeek follows ISO 8601, including weeks that cross the new year", () => {
+  assert.deepEqual(core.isoWeek(new Date(2026, 10, 18)), { week: 47, year: 2026 });
+  assert.deepEqual(core.isoWeek(new Date(2026, 0, 1)), { week: 1, year: 2026 }); // a Thursday
+  assert.deepEqual(core.isoWeek(new Date(2027, 0, 1)), { week: 53, year: 2026 }); // a Friday
+  assert.deepEqual(core.isoWeek(new Date(2024, 11, 30)), { week: 1, year: 2025 }); // a Monday
+  assert.deepEqual(core.isoWeek(new Date(2026, 2, 29, 23, 30)), { week: 13, year: 2026 }); // DST night in Europe
+});
+
+test("dayOfYear and daysInYear handle leap years", () => {
+  assert.equal(core.dayOfYear(new Date(2026, 0, 1)), 1);
+  assert.equal(core.dayOfYear(new Date(2026, 10, 18)), 322);
+  assert.equal(core.dayOfYear(new Date(2028, 11, 31)), 366);
+  assert.equal(core.daysInYear(2026), 365);
+  assert.equal(core.daysInYear(2028), 366);
+  assert.equal(core.daysInYear(2100), 365);
+});
+
+test("holidayCalendarId maps countries to Google's calendar names", () => {
+  assert.equal(core.holidayCalendarId("IN"), "en.indian");
+  assert.equal(core.holidayCalendarId("in"), "en.indian");
+  assert.equal(core.holidayCalendarId("US"), "en.usa");
+  assert.equal(core.holidayCalendarId("GB"), "en.uk");
+  assert.equal(core.holidayCalendarId("AE"), "en.ae");
+  // "en.sa" is South Africa, so Saudi Arabia needs its own name.
+  assert.equal(core.holidayCalendarId("SA"), "en.saudiarabian");
+  assert.equal(core.holidayCalendarId("ZA"), "en.sa");
+  assert.equal(core.holidayCalendarId("IL"), null);
+  assert.equal(core.holidayCalendarId(""), null);
+  assert.equal(core.holidayCalendarId(null), null);
+});
+
+test("parseHolidayCalendar reads Google's holiday feed", () => {
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "BEGIN:VEVENT",
+    "DTSTART;VALUE=DATE:20261108",
+    "DTEND;VALUE=DATE:20261109",
+    "DESCRIPTION:Public holiday",
+    "SUMMARY:Diwali/Deepavali",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "DTSTART;VALUE=DATE:20261108",
+    "DESCRIPTION:Observance\\nTo hide observances\\, go to Google Calendar Setting",
+    " s > Holidays in India",
+    "SUMMARY:Naraka Chaturdasi",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "DTSTART;VALUE=DATE:20260504",
+    "DESCRIPTION:Public holiday in England\\, Wales",
+    "SUMMARY:Early May Bank Holiday",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "DTSTART;VALUE=DATE:20260504",
+    "DESCRIPTION:Public holiday\\nDate is tentative and may change.",
+    "SUMMARY:Early May Bank Holiday",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "DTSTART;VALUE=DATE:20261230",
+    "DTEND;VALUE=DATE:20270102",
+    "DESCRIPTION:Public holiday",
+    "SUMMARY:Year-end break",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+
+  const byDate = core.parseHolidayCalendar(ics);
+
+  assert.deepEqual(byDate["2026-11-08"].map((holiday) => [holiday.name, holiday.kind]), [
+    ["Diwali/Deepavali", "public"],
+    ["Naraka Chaturdasi", "observance"],
+  ]);
+  // A nationwide entry wins over a regional one with the same name.
+  assert.equal(byDate["2026-05-04"].length, 1);
+  assert.equal(byDate["2026-05-04"][0].kind, "public");
+  assert.equal(byDate["2026-05-04"][0].tentative, true);
+  // DTEND is exclusive.
+  assert.ok(byDate["2026-12-30"] && byDate["2026-12-31"] && byDate["2027-01-01"]);
+  assert.equal(byDate["2027-01-02"], undefined);
+
+  const regional = core.parseHolidayCalendar(
+    "BEGIN:VEVENT\nDTSTART;VALUE=DATE:20260317\nDESCRIPTION:Public holiday in Northern Ireland\nSUMMARY:St Patrick's Day\nEND:VEVENT"
+  );
+  assert.deepEqual(regional["2026-03-17"][0], {
+    name: "St Patrick's Day",
+    kind: "regional",
+    note: "Northern Ireland",
+    tentative: false,
+  });
+  assert.deepEqual(core.parseHolidayCalendar(""), {});
+  assert.deepEqual(core.parseHolidayCalendar("<html>error</html>"), {});
+});

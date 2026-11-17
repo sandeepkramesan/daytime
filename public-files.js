@@ -20,6 +20,21 @@ const PUBLIC_FILES = new Set([
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+// Besides the files, the servers answer /holidays/<id>.ics by fetching that one
+// Google public holiday calendar (Google sends no CORS headers, so the page
+// cannot read it directly). Only this fixed Google URL is ever fetched.
+const HOLIDAY_PATH = /^\/holidays\/(en\.[a-z_]{2,24})\.ics$/;
+
+/** "/holidays/en.indian.ics" -> "en.indian"; anything else -> null. */
+function holidayIdFromPath(pathname) {
+  const match = typeof pathname === "string" ? HOLIDAY_PATH.exec(pathname) : null;
+  return match ? match[1] : null;
+}
+
+function googleHolidayUrl(id) {
+  return `https://calendar.google.com/calendar/ical/${encodeURIComponent(`${id}#holiday@group.v.calendar.google.com`)}/public/basic.ics`;
+}
+
 /**
  * Map a decoded URL pathname to a servable relative path, or null.
  * "/" maps to index.html. Anything outside the allowlist is refused.
@@ -45,4 +60,4 @@ function isAllowedHost(hostHeader, extraHosts = []) {
   return extraHosts.some((extra) => String(extra).trim().toLowerCase() === name);
 }
 
-module.exports = { PUBLIC_FILES, publicPath, isAllowedHost };
+module.exports = { PUBLIC_FILES, publicPath, isAllowedHost, holidayIdFromPath, googleHolidayUrl };

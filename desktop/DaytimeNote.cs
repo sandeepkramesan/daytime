@@ -4,7 +4,9 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -176,7 +178,7 @@ namespace DaytimeNative
                 browser.CoreWebView2.NewWindowRequested += OnNewWindow;
                 browser.CoreWebView2.WebMessageReceived += OnWebMessage;
                 browser.CoreWebView2.NavigationCompleted += OnNavigationCompleted;
-                browser.CoreWebView2.Navigate("http://127.0.0.1:" + port + "/index.html?shell=desktop");
+                browser.CoreWebView2.Navigate("http://127.0.0.1:" + port + "/index.html?shell=desktop&region=" + HomeRegion());
             }
             catch (Exception error)
             {
@@ -770,8 +772,24 @@ namespace DaytimeNative
                 string status;
                 string contentType;
                 byte[] body;
+                Match holiday = IsLoopbackHost(host) ? HolidayPath.Match(target) : Match.Empty;
 
-                if (file == null)
+                if (holiday.Success)
+                {
+                    body = ReadHolidays(holiday.Groups[1].Value);
+                    if (body != null)
+                    {
+                        status = "200 OK";
+                        contentType = "text/calendar; charset=utf-8";
+                    }
+                    else
+                    {
+                        status = "502 Bad Gateway";
+                        contentType = "text/plain";
+                        body = Encoding.UTF8.GetBytes("Holiday calendar unavailable");
+                    }
+                }
+                else if (file == null)
                 {
                     status = "404 Not Found";
                     contentType = "text/plain";
@@ -799,6 +817,96 @@ namespace DaytimeNative
                 byte[] head = Encoding.ASCII.GetBytes(header);
                 stream.Write(head, 0, head.Length);
                 stream.Write(body, 0, body.Length);
+            }
+        }
+
+        // Google's public holiday calendars send no CORS headers, so the page
+        // asks for /holidays/<id>.ics and the note fetches that one fixed
+        // Google URL, keeping a copy for a week (and using it when offline).
+        // Keep in sync with HOLIDAY_PATH in public-files.js.
+        private static readonly Regex HolidayPath = new Regex(@"^/holidays/(en\.[a-z_]{2,24})\.ics\z");
+        private static readonly object HolidayLock = new object();
+
+        private byte[] ReadHolidays(string id)
+        {
+            string folder = Path.Combine(dataDirectory, "holidays");
+            string cached = Path.Combine(folder, id + ".ics");
+            lock (HolidayLock)
+            {
+                FileInfo info = new FileInfo(cached);
+                if (info.Exists && DateTime.UtcNow - info.LastWriteTimeUtc < TimeSpan.FromDays(7))
+                {
+                    return File.ReadAllBytes(cached);
+                }
+                try
+                {
+                    byte[] fresh = DownloadHolidays(id);
+                    Directory.CreateDirectory(folder);
+                    File.WriteAllBytes(cached, fresh);
+                    return fresh;
+                }
+                catch (Exception error)
+                {
+                    Program.Log("holidays " + id + ": " + error.Message);
+                    return info.Exists ? File.ReadAllBytes(cached) : null;
+                }
+            }
+        }
+
+        private static byte[] DownloadHolidays(string id)
+        {
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            string url = "https://calendar.google.com/calendar/ical/"
+                + Uri.EscapeDataString(id + "#holiday@group.v.calendar.google.com")
+                + "/public/basic.ics";
+            HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
+            request.Timeout = 15000;
+            request.ReadWriteTimeout = 15000;
+            request.UserAgent = "daytime";
+            request.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
+            using (HttpWebResponse response = (HttpWebResponse)request.GetResponse())
+            using (Stream input = response.GetResponseStream())
+            using (MemoryStream copy = new MemoryStream())
+            {
+                byte[] buffer = new byte[16384];
+                int read;
+                while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    copy.Write(buffer, 0, read);
+                    if (copy.Length > 4 * 1024 * 1024) throw new InvalidDataException("holiday calendar too large");
+                }
+                byte[] bytes = copy.ToArray();
+                string start = Encoding.UTF8.GetString(bytes, 0, Math.Min(bytes.Length, 32));
+                if (!start.StartsWith("BEGIN:VCALENDAR")) throw new InvalidDataException("not a calendar");
+                return bytes;
+            }
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int GetUserDefaultGeoName(StringBuilder geoName, int geoNameCount);
+
+        /// <summary>Windows' "Country or region" setting as an ISO code, for public holidays.</summary>
+        private static string HomeRegion()
+        {
+            try
+            {
+                StringBuilder name = new StringBuilder(16);
+                if (GetUserDefaultGeoName(name, name.Capacity) > 0 && Regex.IsMatch(name.ToString(), "^[A-Za-z]{2}$"))
+                {
+                    return name.ToString().ToUpperInvariant();
+                }
+            }
+            catch
+            {
+                // Older Windows: fall back to the regional format.
+            }
+            try
+            {
+                return RegionInfo.CurrentRegion.TwoLetterISORegionName;
+            }
+            catch
+            {
+                return "";
             }
         }
 

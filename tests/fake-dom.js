@@ -81,7 +81,7 @@ function makeElement(tag = "div") {
   return element;
 }
 
-function createHarness({ fetch: fetchImpl, config = {}, storage = {} } = {}) {
+function createHarness({ fetch: fetchImpl, config = {}, storage = {}, search = "", navigator = {} } = {}) {
   const registry = new Map();
   const query = (selector) => {
     if (!registry.has(selector)) {
@@ -91,6 +91,7 @@ function createHarness({ fetch: fetchImpl, config = {}, storage = {} } = {}) {
   };
 
   const document = {
+    documentElement: makeElement("html"),
     head: makeElement("head"),
     body: makeElement("body"),
     activeElement: null,
@@ -135,8 +136,8 @@ function createHarness({ fetch: fetchImpl, config = {}, storage = {} } = {}) {
   const sandbox = {
     window,
     document,
-    navigator: {},
-    location: { protocol: "http:", hostname: "localhost" },
+    navigator,
+    location: { protocol: "http:", hostname: "localhost", search },
     console,
     Intl,
     Date,
