@@ -1,8 +1,8 @@
 /*
- * Dayline core helpers.
+ * daytime core helpers.
  *
  * Pure date, sun and formatting maths shared by the widget and the test suite.
- * Loaded as a classic script in the browser (window.DaylineCore) and required
+ * Loaded as a classic script in the browser (window.DaytimeCore) and required
  * directly by Node in tests (module.exports).
  */
 (function (root, factory) {
@@ -11,7 +11,7 @@
   const api = factory();
 
   if (typeof module === "object" && module.exports) module.exports = api;
-  else root.DaylineCore = api;
+  else root.DaytimeCore = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
@@ -45,10 +45,15 @@
     return startOfLocalDay(next);
   }
 
-  /** Sunday-based week start, matching the Sunday–Saturday strip in the UI. */
-  function startOfWeek(date) {
+  /**
+   * Local midnight of the first day of the week containing `date`.
+   * `weekStartsOn` is 0 = Sunday (default) … 6 = Saturday, so the strip can
+   * follow the user's region (Monday in most of Europe, Sunday in the US).
+   */
+  function startOfWeek(date, weekStartsOn = 0) {
+    const first = Number.isInteger(weekStartsOn) ? ((weekStartsOn % 7) + 7) % 7 : 0;
     const start = startOfLocalDay(date);
-    start.setDate(start.getDate() - start.getDay());
+    start.setDate(start.getDate() - ((start.getDay() - first + 7) % 7));
     return start;
   }
 

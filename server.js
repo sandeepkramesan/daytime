@@ -14,10 +14,17 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const { publicPath, isAllowedHost } = require("./public-files.js");
 
 const ROOT = __dirname;
 const PORT = Number.parseInt(process.env.PORT || "4173", 10);
 const HOST = process.env.HOST || "127.0.0.1";
+// Extra Host header names to accept besides localhost/127.0.0.1/[::1], e.g.
+// ALLOWED_HOSTS=192.168.1.20 when HOST=0.0.0.0 for testing on a phone.
+const ALLOWED_HOSTS = (process.env.ALLOWED_HOSTS || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -43,28 +50,32 @@ function send(res, status, body, headers = {}) {
   res.end(body);
 }
 
-const server = http.createServer((request, response) => {
+function handleRequest(request, response) {
   if (request.method !== "GET" && request.method !== "HEAD") {
     send(response, 405, "Method not allowed", { Allow: "GET, HEAD" });
     return;
   }
 
+  if (!isAllowedHost(request.headers.host, ALLOWED_HOSTS)) {
+    send(response, 421, "Misdirected request");
+    return;
+  }
+
   let pathname;
   try {
-    pathname = decodeURIComponent(new URL(request.url, `http://${request.headers.host || HOST}`).pathname);
+    pathname = decodeURIComponent(new URL(request.url, "http://127.0.0.1").pathname);
   } catch {
     send(response, 400, "Bad request");
     return;
   }
 
-  if (pathname.endsWith("/")) pathname += "index.html";
-
-  const filePath = path.join(ROOT, pathname);
-  if (filePath !== ROOT && !filePath.startsWith(ROOT + path.sep)) {
-    send(response, 403, "Forbidden");
+  const relative = publicPath(pathname);
+  if (!relative) {
+    send(response, 404, "Not found");
     return;
   }
 
+  const filePath = path.join(ROOT, relative);
   let stats;
   try {
     stats = fs.statSync(filePath);
@@ -94,7 +105,17 @@ const server = http.createServer((request, response) => {
   fs.createReadStream(filePath)
     .on("error", () => response.destroy())
     .pipe(response);
-});
+}
+
+function createServer() {
+  return http.createServer(handleRequest);
+}
+
+module.exports = { createServer, handleRequest };
+
+if (require.main !== module) return;
+
+const server = createServer();
 
 server.on("error", (error) => {
   if (error.code === "EADDRINUSE") {
@@ -106,6 +127,6 @@ server.on("error", (error) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`Dayline is running at http://${HOST}:${PORT}`);
+  console.log(`daytime is running at http://${HOST}:${PORT}`);
   console.log("Add that exact origin under Authorized JavaScript origins in Google Cloud Console.");
 });

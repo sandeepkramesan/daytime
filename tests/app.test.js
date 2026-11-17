@@ -100,7 +100,7 @@ test("without a configured client ID the widget asks for one in-app, then loads 
   clickAction(harness, "connectAction", "save");
   await wait(80);
 
-  assert.equal(harness.store.get("dayline.clientId"), CLIENT_ID);
+  assert.equal(harness.store.get("daytime.clientId"), CLIENT_ID);
   assert.ok(harness.calls.includes("initTokenClient"));
   assert.ok(harness.calls.includes("requestAccessToken"));
   assert.equal(harness.query("#connectDialog").open, false);
@@ -204,4 +204,144 @@ test("disconnecting clears the session and offers the connect flow again", async
 
   harness.query("#refreshButton").dispatch("click", {});
   assert.equal(harness.query("#connectDialog").open, true);
+});
+
+test("a client ID pasted in the app wins over the default in config.js", async () => {
+  const today = new Date();
+  const harness = createHarness({
+    fetch: dayFetch(localKey(today)),
+    config: { googleClientId: "999-default.apps.googleusercontent.com" },
+    storage: { "daytime.clientId": CLIENT_ID },
+  });
+
+  harness.query("#calendarLink").dispatch("click", { preventDefault() {} });
+  clickAction(harness, "connectAction", "authorize");
+  await wait(60);
+
+  assert.ok(harness.calls.includes(`client:${CLIENT_ID}`));
+  assert.ok(!harness.calls.includes("client:999-default.apps.googleusercontent.com"));
+});
+
+test("events from every shown calendar are merged, and shared invites appear once", async () => {
+  const dayKey = localKey(new Date());
+  const harness = createHarness({
+    fetch: async (url) => {
+      if (url.includes("/calendarList")) {
+        return json({
+          items: [
+            { id: "me@example.com", primary: true },
+            { id: "family#group", selected: true },
+            { id: "hidden-cal", selected: true, hidden: true },
+            { id: "unselected-cal", selected: false },
+          ],
+        });
+      }
+      if (url.includes("/calendars/me%40example.com/events")) {
+        return json({
+          items: [
+            { iCalUID: "shared-1", status: "confirmed", summary: "Team sync", start: { dateTime: `${dayKey}T09:00:00` } },
+          ],
+        });
+      }
+      if (url.includes("/calendars/family%23group/events")) {
+        return json({
+          items: [
+            { iCalUID: "shared-1", status: "confirmed", summary: "Team sync", start: { dateTime: `${dayKey}T09:00:00` } },
+            { iCalUID: "fam-1", status: "confirmed", summary: "School pickup", start: { dateTime: `${dayKey}T15:00:00` } },
+          ],
+        });
+      }
+      if (url.includes("calendar/v3")) throw new Error(`unexpected calendar ${url}`);
+      return json({});
+    },
+  });
+
+  await connect(harness);
+
+  const html = harness.content.innerHTML;
+  assert.match(html, /School pickup/);
+  assert.equal(html.match(/Team sync/g).length, 1);
+  assert.match(html, /2 items for your day/);
+  assert.ok(!harness.calls.some((call) => call.includes("hidden-cal") || call.includes("unselected-cal")));
+});
+
+test("without calendar-list access only the primary calendar is read", async () => {
+  const dayKey = localKey(new Date());
+  const harness = createHarness({
+    fetch: async (url) => {
+      if (url.includes("/calendarList")) return json({ error: { message: "Insufficient scopes" } }, 403);
+      return dayFetch(dayKey)(url);
+    },
+  });
+
+  await connect(harness);
+
+  assert.ok(harness.calls.some((call) => call.includes("/calendars/primary/events")));
+  assert.match(harness.content.innerHTML, /Design review/);
+});
+
+test("tasks are requested for the selected day only", async () => {
+  const today = new Date();
+  const dayKey = localKey(today);
+  const harness = createHarness({
+    fetch: async (url) => {
+      if (url.includes("/users/@me/lists")) return json({ items: [{ id: "list-1", title: "My Tasks" }] });
+      if (url.includes("/lists/list-1/tasks")) {
+        return json({ items: [{ id: "t1", title: "Pay rent", status: "needsAction", due: `${dayKey}T00:00:00.000Z` }] });
+      }
+      return dayFetch(dayKey)(url);
+    },
+  });
+
+  await connect(harness);
+
+  const taskCall = harness.calls.find((call) => call.includes("/lists/list-1/tasks"));
+  const params = new URL(taskCall).searchParams;
+  assert.equal(params.get("dueMin"), `${dayKey}T00:00:00.000Z`);
+  assert.equal(params.get("dueMax"), `${dayKey}T23:59:59.999Z`);
+  assert.match(harness.content.innerHTML, /Pay rent/);
+});
+
+test("the week strip can start on Monday", () => {
+  const harness = createHarness({ config: { weekStart: "monday" } });
+  const labels = harness.query("#weekLabels").children.map((child) => child.textContent);
+  const days = harness.query("#weekDays").children;
+
+  assert.equal(labels.length, 7);
+  assert.equal(new Date(`${days[0].dataset.date}T00:00:00`).getDay(), 1);
+  assert.equal(new Date(`${days[6].dataset.date}T00:00:00`).getDay(), 0);
+});
+
+test("a location shared earlier is remembered for sunrise and sunset", () => {
+  const harness = createHarness({
+    storage: { "daytime.location": JSON.stringify({ latitude: 51.51, longitude: -0.13 }) },
+  });
+
+  assert.match(harness.query("#sunriseTime").textContent, /\d/);
+  assert.match(harness.query("#sunsetTime").textContent, /\d/);
+  assert.notEqual(harness.query("#sunStatus").textContent, "LOCATION NEEDED");
+});
+
+test("an expired session renews on the next click instead of asking to sign in again", async () => {
+  const dayKey = localKey(new Date());
+  let calendarCalls = 0;
+  const harness = createHarness({
+    fetch: async (url) => {
+      if (url.includes("calendar/v3")) {
+        calendarCalls += 1;
+        if (calendarCalls === 1) return json({ error: "invalid_token" }, 401);
+      }
+      return dayFetch(dayKey)(url);
+    },
+  });
+
+  await connect(harness);
+  assert.match(harness.content.innerHTML, /Reconnect Google Calendar/);
+
+  harness.content.dispatch("click", { target: { closest: () => ({ dataset: { action: "reconnect" } }) } });
+  await wait(60);
+
+  assert.equal(harness.calls.filter((call) => call === "requestAccessToken").length, 2);
+  assert.equal(harness.query("#connectDialog").open, false);
+  assert.match(harness.content.innerHTML, /Design review/);
 });

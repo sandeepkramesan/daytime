@@ -1,7 +1,11 @@
-/* Dayline — Nothing-inspired dark widget.
-   No webfonts: the stack resolves to Roboto on Android (which is what Nothing OS
-   uses), Segoe UI on Windows and the system UI font elsewhere. That keeps the
-   widget offline-safe and avoids a third-party request. */
+/* daytime — Nothing-inspired dark interface.
+   Uses Inter when it is installed on the device, otherwise the platform's own
+   sans (Segoe UI / Roboto / Helvetica). No web fonts are fetched, so nothing
+   is requested from a third party and the look is identical offline. */
+
+/* Component display rules (e.g. .icon-button { display: grid }) would
+   otherwise override the hidden attribute. */
+[hidden] { display: none !important; }
 
 :root {
   color-scheme: dark;
@@ -58,7 +62,7 @@ button { color: inherit; }
   padding: 29px 19px 20px;
   overflow: auto;
   resize: both;
-  container: dayline / size;
+  container: daytime / size;
   border: 1px solid var(--line);
   border-radius: 21px;
   background: var(--bg);
@@ -221,7 +225,8 @@ button { color: inherit; }
 .event-meta { margin: 4px 0 0; color: #8f8f8f; font-size: 11px; line-height: 1.5; }
 .event-item.task .event-name::before { content: ""; display: inline-block; width: 7px; height: 7px; margin: 0 7px 1px 0; border: 1px solid #b9c1c9; border-radius: 2px; }
 .status-card p.agenda-warning { max-width: 100%; margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--line); color: #e6a3a9; font-size: 11px; line-height: 1.6; }
-.empty-state { padding: 4px 0 1px; }
+/* The empty state is its own .status-card, so it needs the card padding. */
+.status-card.empty-state { padding: 22px 19px 22px; }
 .empty-mark { display: grid; width: 28px; height: 28px; margin-bottom: 11px; place-items: center; border: 1px solid #393939; border-radius: 50%; color: #a2b0be; font-size: 13px; }
 .empty-state h2 { margin: 0 0 7px; font-size: 14px; font-weight: 500; }
 .empty-state p { margin: 0; color: #969696; font-size: 12px; line-height: 1.7; }
@@ -321,7 +326,7 @@ button { color: inherit; }
   .widget { padding: 21px 15px 17px; }
 }
 
-@container dayline (max-width: 370px) {
+@container daytime (max-width: 370px) {
   .date-hero { min-height: 153px; }
   .day-number { font-size: 80px; }
   .month { font-size: 14px; }
@@ -334,7 +339,7 @@ button { color: inherit; }
   .connect-card { padding: 19px 16px; }
 }
 
-@container dayline (max-height: 560px) {
+@container daytime (max-height: 560px) {
   .topbar { min-height: 36px; }
   .date-hero { min-height: 132px; padding-top: 10px; }
   .day-number { font-size: 78px; }
@@ -345,7 +350,7 @@ button { color: inherit; }
   .widget-footer { padding-top: 9px; }
 }
 
-@container dayline (max-height: 470px) {
+@container daytime (max-height: 470px) {
   .date-hero { min-height: 116px; }
   .day-number { font-size: 66px; }
   .week { margin-top: 0; }
@@ -372,3 +377,45 @@ button { color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Desktop shell (native WebView2 note): edge-to-edge, no frame, page-driven resize. */
+.topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+html.shell,
+html.shell body {
+  background: #050505 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+html.shell body { display: block !important; }
+html.shell .widget {
+  width: 100vw !important;
+  height: 100vh !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  max-width: none !important;
+  max-height: none !important;
+  border: 1px solid #2a2a2a !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  resize: none !important;
+}
+html.shell .shell-only { display: grid !important; }
+html.shell .privacy-note { font-size: 9px; letter-spacing: .08em; }
+html.shell .topbar { gap: 10px; }
+html.shell .topbar,
+html.shell .date-hero { cursor: grab; }
+html.shell .topbar:active,
+html.shell .date-hero:active { cursor: grabbing; }
+html.shell .topbar button,
+html.shell .topbar a,
+html.shell .date-hero button { cursor: pointer; }
+
+html.shell ::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
+html.shell .widget { scrollbar-width: none; }

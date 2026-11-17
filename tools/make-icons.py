@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Dayline PNG app icons from the same geometry as logo.svg.
+"""Generate daytime PNG app icons from the same geometry as logo.svg.
 
 Run from the project root:  python tools/make-icons.py
 
@@ -26,7 +26,7 @@ def rounded_line(draw, start, end, width, fill):
 
 
 def draw_mark(size, content_scale=1.0):
-    """Draw the Dayline mark on a transparent square canvas."""
+    """Draw the daytime mark on a transparent square canvas."""
     canvas = size * SUPERSAMPLE
     unit = canvas / 64  # logo.svg uses a 64x64 viewBox
 

@@ -1,0 +1,14 @@
+{
+  "name": "daytime-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "daytime as a floating desktop sticky note",
+  "main": "main.js",
+  "scripts": {
+    "start": "node start.js",
+    "start:electron": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^45.0.0"
+  }
+}

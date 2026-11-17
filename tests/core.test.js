@@ -31,6 +31,14 @@ test("startOfWeek returns the Sunday of that week", () => {
   assert.equal(core.localDateKey(core.startOfWeek(new Date(2026, 9, 31))), "2026-10-25");
 });
 
+test("startOfWeek can start on Monday or Saturday", () => {
+  const saturday = new Date(2026, 9, 31);
+  assert.equal(core.localDateKey(core.startOfWeek(saturday, 1)), "2026-10-26");
+  assert.equal(core.localDateKey(core.startOfWeek(saturday, 6)), "2026-10-31");
+  const sunday = new Date(2026, 10, 1);
+  assert.equal(core.localDateKey(core.startOfWeek(sunday, 1)), "2026-10-26");
+});
+
 test("addDays keeps local midnight across month and year boundaries", () => {
   assert.equal(core.localDateKey(core.addDays(new Date(2026, 9, 31), 1)), "2026-11-01");
   assert.equal(core.localDateKey(core.addDays(new Date(2026, 11, 31), 1)), "2027-01-01");

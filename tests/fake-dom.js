@@ -81,7 +81,7 @@ function makeElement(tag = "div") {
   return element;
 }
 
-function createHarness({ fetch: fetchImpl, config = {} } = {}) {
+function createHarness({ fetch: fetchImpl, config = {}, storage = {} } = {}) {
   const registry = new Map();
   const query = (selector) => {
     if (!registry.has(selector)) {
@@ -103,11 +103,11 @@ function createHarness({ fetch: fetchImpl, config = {} } = {}) {
   };
 
   const calls = [];
-  const store = new Map();
+  const store = new Map(Object.entries(storage));
   const intervals = [];
 
   const window = {
-    DAYLINE_CONFIG: config,
+    daytime_CONFIG: config,
     setInterval: (fn) => { intervals.push(fn); return 0; },
     addEventListener() {},
     google: {
@@ -115,6 +115,7 @@ function createHarness({ fetch: fetchImpl, config = {} } = {}) {
         oauth2: {
           initTokenClient(clientConfig) {
             calls.push("initTokenClient");
+            calls.push(`client:${clientConfig.client_id}`);
             return {
               requestAccessToken() {
                 calls.push("requestAccessToken");
@@ -166,7 +167,7 @@ function createHarness({ fetch: fetchImpl, config = {} } = {}) {
   vm.createContext(sandbox);
 
   vm.runInContext(fs.readFileSync(path.join(ROOT, "core.js"), "utf8"), sandbox);
-  window.DaylineCore = sandbox.DaylineCore;
+  window.DaytimeCore = sandbox.DaytimeCore;
   vm.runInContext(fs.readFileSync(path.join(ROOT, "app.js"), "utf8"), sandbox);
 
   return { calls, content: query("#agendaContent"), document, query, store, tick: intervals[0], window };

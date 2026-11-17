@@ -1,5 +1,5 @@
 /*
- * Dayline — calendar + tasks widget.
+ * daytime — calendar + tasks widget.
  *
  * Everything runs in the browser: no build step, no server, no analytics.
  * Google access is read-only and the OAuth token is kept in memory only.
@@ -7,8 +7,8 @@
 (() => {
   "use strict";
 
-  const VERSION = "1.1.0";
-  const core = window.DaylineCore;
+  const VERSION = "1.3.0";
+  const core = window.DaytimeCore;
   const $ = (selector, scope = document) => scope.querySelector(selector);
 
   const elements = {
@@ -30,6 +30,9 @@
     content: $("#agendaContent"),
     refresh: $("#refreshButton"),
     about: $("#aboutButton"),
+    backButton: $("#backButton"),
+    closeButton: $("#closeButton"),
+    weekLabels: $("#weekLabels"),
     live: $("#liveMessage"),
     welcomeTemplate: $("#welcomeTemplate"),
     connectDialog: $("#connectDialog"),
@@ -41,36 +44,55 @@
   };
 
   if (!core) {
-    console.error("Dayline: core.js did not load, so the widget cannot start.");
+    console.error("daytime: core.js did not load, so the widget cannot start.");
     return;
   }
 
   const config = Object.assign(
-    { googleClientId: "", timeFormat: "locale", location: null },
-    window.DAYLINE_CONFIG && typeof window.DAYLINE_CONFIG === "object" ? window.DAYLINE_CONFIG : {}
+    { googleClientId: "", timeFormat: "locale", weekStart: "locale", location: null },
+    window.daytime_CONFIG && typeof window.daytime_CONFIG === "object" ? window.daytime_CONFIG : {}
   );
+
+  // The native desktop shell loads the page with ?shell=desktop: no frame,
+  // fixed sizing, and the header becomes a window drag handle.
+  const shellMode = new URLSearchParams(location.search).get("shell") === "desktop";
+  if (shellMode) document.documentElement.classList.add("shell");
 
   const GOOGLE_SCOPE = [
     "https://www.googleapis.com/auth/calendar.events.readonly",
+    // Lets daytime list which calendars you have (shared, family, work) so
+    // their events show up too. If it is not granted, only the primary
+    // calendar is read.
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
     "https://www.googleapis.com/auth/tasks.readonly",
   ].join(" ");
   const CLIENT_ID_PATTERN = /^[\w-]+\.apps\.googleusercontent\.com$/i;
-  const STORAGE_KEY = "dayline.clientId";
+  const STORAGE_KEY = "daytime.clientId";
+  const LOCATION_KEY = "daytime.location";
   const REQUEST_TIMEOUT_MS = 20000;
-  const TASK_LIST_TTL_MS = 10 * 60 * 1000;
-  const TICK_MS = 15000;
+  const LIST_TTL_MS = 10 * 60 * 1000;
+  // A cheap one-second tick keeps the clock exact at the minute boundary;
+  // the DOM is only touched when the displayed text changes.
+  const TICK_MS = 1000;
+  // Renew the Google token on the next user action when it is this close to expiring.
+  const TOKEN_RENEW_MARGIN_MS = 5 * 60 * 1000;
 
   const state = {
     selectedDate: core.startOfLocalDay(new Date()),
     todayKey: core.localDateKey(new Date()),
+    weekStartsOn: resolveWeekStart(config.weekStart),
     accessToken: null,
     tokenExpiresAt: 0,
     tokenClient: null,
+    hadSession: false,
     connecting: false,
     libraryPromise: null,
-    location: readConfiguredLocation(config.location),
+    citiesPromise: null,
+    location: readConfiguredLocation(config.location) || readSavedLocation(),
     agendaRun: 0,
     agendaController: null,
+    calendars: null,
+    calendarsFetchedAt: 0,
     taskLists: null,
     taskListsFetchedAt: 0,
     connectView: "intro",
@@ -102,6 +124,7 @@
       month: new Intl.DateTimeFormat(undefined, { ...gregorian, month: "long" }),
       day: new Intl.DateTimeFormat(undefined, { ...gregorian, day: "numeric" }),
       year: new Intl.DateTimeFormat(undefined, { ...gregorian, year: "numeric" }),
+      narrowWeekday: new Intl.DateTimeFormat(undefined, { ...gregorian, weekday: "narrow" }),
     };
   })();
 
@@ -151,19 +174,133 @@
     }
   }
 
+  function configuredClientId() {
+    return String(config.googleClientId || "").trim();
+  }
+
+  /** A client ID the user pasted in-app wins over the deployer's default in config.js. */
   function activeClientId() {
-    const fromConfig = String(config.googleClientId || "").trim();
-    if (fromConfig) return fromConfig;
-    return readStoredClientId().trim();
+    return readStoredClientId().trim() || configuredClientId();
+  }
+
+  /** 0 = Sunday … 6 = Saturday. "locale" follows the browser's region. */
+  function resolveWeekStart(setting) {
+    const named = { sunday: 0, monday: 1, saturday: 6 };
+    const key = String(setting || "locale").toLowerCase();
+    if (key in named) return named[key];
+    try {
+      const locale = new Intl.Locale(navigator.language || "en-US");
+      const info = typeof locale.getWeekInfo === "function" ? locale.getWeekInfo() : locale.weekInfo;
+      if (info && Number.isInteger(info.firstDay)) return info.firstDay % 7; // Intl uses 7 for Sunday.
+    } catch {
+      /* Older engines: fall through to Sunday. */
+    }
+    return 0;
+  }
+
+  function validCoordinates(latitude, longitude) {
+    return (
+      Number.isFinite(latitude) &&
+      Number.isFinite(longitude) &&
+      Math.abs(latitude) <= 90 &&
+      Math.abs(longitude) <= 180
+    );
   }
 
   function readConfiguredLocation(value) {
     if (!value || typeof value !== "object") return null;
     const latitude = Number(value.latitude ?? value.lat);
     const longitude = Number(value.longitude ?? value.lng ?? value.lon);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-    if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
-    return { latitude, longitude, source: "config" };
+    if (!validCoordinates(latitude, longitude)) return null;
+    return { latitude, longitude, source: "config", city: null };
+  }
+
+  /** A location the user chose to share earlier, kept on this device only. */
+  function readSavedLocation() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LOCATION_KEY) || "null");
+      if (!saved) return null;
+      const latitude = Number(saved.latitude);
+      const longitude = Number(saved.longitude);
+      if (!validCoordinates(latitude, longitude)) return null;
+      return { latitude, longitude, source: "saved", city: null };
+    } catch {
+      return null;
+    }
+  }
+
+  function writeSavedLocation(latitude, longitude) {
+    try {
+      if (latitude === null) {
+        localStorage.removeItem(LOCATION_KEY);
+        return;
+      }
+      // Two decimals (~1 km) is plenty for sunrise/sunset and keeps less detail on disk.
+      const round = (value) => Math.round(value * 100) / 100;
+      localStorage.setItem(
+        LOCATION_KEY,
+        JSON.stringify({ latitude: round(latitude), longitude: round(longitude) })
+      );
+    } catch {
+      /* Private browsing: the location simply won't be remembered. */
+    }
+  }
+
+  /** cities.js is ~240 KB, so it is only fetched once a location is actually known. */
+  function loadCities() {
+    if (Array.isArray(window.DAYTIME_CITIES)) return Promise.resolve();
+    if (state.citiesPromise) return state.citiesPromise;
+
+    state.citiesPromise = new Promise((resolve) => {
+      const script = document.createElement("script");
+      script.src = "./cities.js";
+      script.async = true;
+      script.addEventListener("load", () => resolve());
+      script.addEventListener("error", () => {
+        state.citiesPromise = null;
+        resolve(); // No city name is fine: coordinates are shown instead.
+      });
+      document.head.append(script);
+    });
+    return state.citiesPromise;
+  }
+
+  function resolveCity(location) {
+    if (!location) return;
+    loadCities().then(() => {
+      if (state.location !== location) return; // Replaced meanwhile.
+      location.city = nearestCity(location.latitude, location.longitude);
+      renderSunTimes();
+    });
+  }
+
+  /**
+   * Nearest city from the bundled GeoNames list (cities.js).
+   * Entirely offline: coordinates never leave the device.
+   */
+  function nearestCity(latitude, longitude) {
+    const cities = window.DAYTIME_CITIES;
+    if (!Array.isArray(cities) || cities.length === 0) return null;
+
+    const cosLat = Math.cos((latitude * Math.PI) / 180);
+    let best = null;
+    let bestScore = Infinity;
+
+    for (const city of cities) {
+      const dLat = (city[2] - latitude) * 111;
+      const dLon = (city[3] - longitude) * 111 * cosLat;
+      const score = dLat * dLat + dLon * dLon;
+      if (score < bestScore) {
+        bestScore = score;
+        best = city;
+      }
+    }
+
+    // Only claim a city when it is genuinely nearby; otherwise show the
+    // coordinates rather than naming a place an hour away.
+    const distanceKm = Math.sqrt(bestScore);
+    if (!best || distanceKm > 120) return null;
+    return { name: best[0], country: best[1], distanceKm: Math.round(distanceKm) };
   }
 
   function parseDateKey(key) {
@@ -185,8 +322,13 @@
     elements.dayNumber.textContent = formatters.day.format(selected);
     elements.month.textContent = formatters.month.format(selected);
     elements.year.textContent = formatters.year.format(selected);
-    elements.clock.textContent = formatTime(new Date());
+    renderClock();
     renderSunTimes();
+  }
+
+  function renderClock() {
+    const text = formatTime(new Date());
+    if (elements.clock.textContent !== text) elements.clock.textContent = text;
   }
 
   function renderSunTimes() {
@@ -203,8 +345,14 @@
 
     elements.sunrise.textContent = sunrise ? formatTime(sunrise) : "—";
     elements.sunset.textContent = sunset ? formatTime(sunset) : "—";
-    elements.sunStatus.textContent =
-      !sunrise && !sunset ? "POLAR DAY OR NIGHT" : "CALCULATED ON DEVICE";
+
+    const city = state.location.city;
+    if (city) {
+      elements.sunStatus.textContent = `${city.name}, ${city.country}`;
+    } else {
+      elements.sunStatus.textContent =
+        !sunrise && !sunset ? "POLAR DAY OR NIGHT" : "CALCULATED ON DEVICE";
+    }
   }
 
   function requestLocation() {
@@ -218,14 +366,14 @@
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        state.location = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          source: "device",
-        };
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        state.location = { latitude, longitude, source: "device", city: null };
+        writeSavedLocation(latitude, longitude);
         elements.location.disabled = false;
         elements.location.textContent = "REFRESH LOCATION";
         renderSunTimes();
+        resolveCity(state.location);
         announce("Sunrise and sunset updated for this location.");
       },
       (error) => {
@@ -251,8 +399,20 @@
       : "Connect Google Calendar to open this day";
   }
 
+  function renderWeekLabels() {
+    if (!elements.weekLabels) return;
+    const weekStart = core.startOfWeek(state.selectedDate, state.weekStartsOn);
+    const fragment = document.createDocumentFragment();
+    for (let index = 0; index < 7; index += 1) {
+      const label = document.createElement("span");
+      label.textContent = formatters.narrowWeekday.format(core.addDays(weekStart, index));
+      fragment.append(label);
+    }
+    elements.weekLabels.replaceChildren(fragment);
+  }
+
   function renderWeek() {
-    const weekStart = core.startOfWeek(state.selectedDate);
+    const weekStart = core.startOfWeek(state.selectedDate, state.weekStartsOn);
     const selectedKey = core.localDateKey(state.selectedDate);
     const fragment = document.createDocumentFragment();
 
@@ -308,7 +468,9 @@
     renderHeading();
 
     if (isConnected()) {
-      loadAgenda();
+      if (!renewSessionIfNeeded()) loadAgenda();
+    } else if (renewSessionIfNeeded()) {
+      renderLoading();
     } else if (!elements.content.querySelector(".connect-card")) {
       renderWelcome();
     }
@@ -440,12 +602,21 @@
       throw new RequestError("Your Google access expired. Reconnect to continue.", { reconnect: true });
     }
     if (response.status === 403) {
+      let detail = "";
+      try {
+        const body = await response.clone().json();
+        if (body && body.error && body.error.message) detail = ` ${body.error.message}`;
+      } catch {
+        /* No JSON body. */
+      }
       throw new RequestError(
-        `Google refused access to ${service}. Make sure the ${service} API is enabled for this OAuth client.`
+        detail
+          ? `Google refused access to ${service}.${detail}`
+          : `Google refused access to ${service}. Make sure the ${service} API is enabled for this OAuth client.`
       );
     }
     if (response.status === 429) {
-      throw new RequestError("Google is rate limiting Dayline. Wait a minute, then refresh.");
+      throw new RequestError("Google is rate limiting daytime. Wait a minute, then refresh.");
     }
     if (!response.ok) {
       throw new RequestError(`Google couldn’t complete that request (${response.status}). Try again in a moment.`);
@@ -475,6 +646,37 @@
     return items;
   }
 
+  /**
+   * Calendars the user shows in Google Calendar (primary, shared, family…).
+   * Falls back to just the primary calendar when the calendar-list scope was
+   * not granted or the list cannot be read.
+   */
+  async function getCalendars(signal) {
+    if (state.calendars && Date.now() - state.calendarsFetchedAt < LIST_TTL_MS) {
+      return state.calendars;
+    }
+
+    let calendars = [];
+    try {
+      const entries = await listAllPages(
+        "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250&fields=nextPageToken,items(id,primary,selected,hidden,deleted)",
+        { signal, service: "Calendar" }
+      );
+      calendars = entries
+        .filter((entry) => entry && typeof entry.id === "string" && entry.id)
+        .filter((entry) => !entry.deleted && !entry.hidden && (entry.primary || entry.selected))
+        .map((entry) => entry.id);
+    } catch (error) {
+      if (isAbort(error) || error.reconnect) throw error;
+      /* Scope not granted or list unavailable: read the primary calendar only. */
+    }
+
+    if (!calendars.length) calendars = ["primary"];
+    state.calendars = calendars;
+    state.calendarsFetchedAt = Date.now();
+    return calendars;
+  }
+
   async function fetchCalendarEvents(date, signal) {
     const start = core.startOfLocalDay(date);
     const end = core.addDays(start, 1);
@@ -485,13 +687,37 @@
       orderBy: "startTime",
       maxResults: "2500",
       showDeleted: "false",
-      fields: "nextPageToken,items(status,summary,location,start)",
+      fields: "nextPageToken,items(id,iCalUID,status,summary,location,start)",
     });
 
-    const events = await listAllPages(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
-      { signal, service: "Calendar" }
+    const calendarIds = await getCalendars(signal);
+    const results = await Promise.allSettled(
+      calendarIds.map((id) =>
+        listAllPages(
+          `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(id)}/events?${params}`,
+          { signal, service: "Calendar" }
+        )
+      )
     );
+
+    // One unreadable shared calendar must not hide the others, but if every
+    // calendar failed the day genuinely could not load.
+    const loaded = results.filter((result) => result.status === "fulfilled");
+    if (!loaded.length) throw results[0].reason;
+
+    // The same meeting appears once per calendar it was invited to.
+    const seen = new Set();
+    const events = loaded
+      .flatMap((result) => result.value)
+      .filter((event) => {
+        const key = event.iCalUID
+          ? `${event.iCalUID}|${(event.start && (event.start.dateTime || event.start.date)) || ""}`
+          : null;
+        if (!key) return true;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
 
     return events
       .filter((event) => event.status !== "cancelled")
@@ -515,7 +741,7 @@
   }
 
   async function getTaskLists(signal) {
-    if (state.taskLists && Date.now() - state.taskListsFetchedAt < TASK_LIST_TTL_MS) {
+    if (state.taskLists && Date.now() - state.taskListsFetchedAt < LIST_TTL_MS) {
       return state.taskLists;
     }
 
@@ -532,10 +758,20 @@
   async function fetchTasks(date, signal) {
     const lists = await getTaskLists(signal);
     const dueKey = core.localDateKey(date);
+    // Google stores a task's due date as UTC midnight of that date, so ask the
+    // API for just that window instead of downloading every open task.
+    const params = new URLSearchParams({
+      maxResults: "100",
+      showCompleted: "false",
+      showHidden: "false",
+      dueMin: `${dueKey}T00:00:00.000Z`,
+      dueMax: `${dueKey}T23:59:59.999Z`,
+      fields: "nextPageToken,items(id,title,status,due)",
+    });
     const groups = await Promise.all(
       lists.map(async (list) => {
         const tasks = await listAllPages(
-          `https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(list.id)}/tasks?maxResults=100&showCompleted=false&showHidden=false&fields=nextPageToken,items(id,title,status,due)`,
+          `https://tasks.googleapis.com/tasks/v1/lists/${encodeURIComponent(list.id)}/tasks?${params}`,
           { signal, service: "Tasks" }
         );
 
@@ -562,6 +798,10 @@
   async function loadAgenda() {
     if (!isConnected()) {
       setBusy(false);
+      if (renewSessionIfNeeded()) {
+        renderLoading();
+        return;
+      }
       renderWelcome("Your Google session ended. Connect again to load this day.");
       return;
     }
@@ -672,12 +912,12 @@
 
     if (state.connectView === "working") {
       elements.connectBody.innerHTML = `
-        <p>Finish signing in with Google in the window that just opened. Dayline will load this day as soon as access is granted.</p>
+        <p>Finish signing in with Google in the window that just opened. daytime will load this day as soon as access is granted.</p>
         <div class="sheet-actions"><button class="button" type="button" data-connect-action="close">Cancel</button></div>`;
     } else if (state.connectView === "setup") {
       const existing = activeClientId();
       elements.connectBody.innerHTML = `
-        <p>One-time setup: Dayline needs a Google OAuth client ID from your own Google Cloud project. Paste it here — it is saved in this browser only, so you never have to edit a file.</p>
+        <p>One-time setup: daytime needs a Google OAuth client ID from your own Google Cloud project. Paste it here — it is saved in this browser only, so you never have to edit a file.</p>
         <div class="field">
           <label for="clientIdInput">Google OAuth client ID</label>
           <input id="clientIdInput" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="1234567890-abcd.apps.googleusercontent.com" value="${core.escapeHTML(existing)}" aria-describedby="clientIdHelp" />
@@ -686,6 +926,7 @@
         <p class="sheet-error" id="clientIdError" role="alert" hidden></p>
         <div class="sheet-actions">
           <button class="button primary" type="button" data-connect-action="save">Save and continue</button>
+          ${configuredClientId() && readStoredClientId() ? '<button class="button" type="button" data-connect-action="reset-client">Use the default client ID</button>' : ""}
           <button class="button" type="button" data-connect-action="close">Cancel</button>
         </div>`;
     } else if (state.connectView === "error") {
@@ -697,7 +938,7 @@
         </div>`;
     } else {
       elements.connectBody.innerHTML = `
-        <p>Dayline shows the events and tasks for the day you pick. It asks Google for <strong>read-only</strong> access to Calendar and Tasks, and the sign-in token stays in this tab only.</p>
+        <p>daytime shows the events and tasks for the day you pick. It asks Google for <strong>read-only</strong> access to Calendar and Tasks, and the sign-in token stays in this tab only.</p>
         ${errorMarkup}
         <div class="sheet-actions">
           <button class="button primary" type="button" data-connect-action="authorize">Continue with Google</button>
@@ -713,6 +954,41 @@
     focusTarget?.focus({ preventScroll: true });
   }
 
+  /**
+   * Google access tokens last about an hour and the browser token flow has no
+   * refresh token. When the user acts on an expiring or expired session we ask
+   * Google again without the consent screen. This must run synchronously
+   * inside a click so the popup is not blocked. Returns true when a renewal
+   * started (its callback loads the agenda).
+   */
+  function renewSessionIfNeeded() {
+    if (!state.tokenClient || !state.hadSession || state.connecting) return false;
+    if (state.accessToken && state.tokenExpiresAt - Date.now() > TOKEN_RENEW_MARGIN_MS) return false;
+
+    state.connecting = true;
+    state.renewing = true;
+    try {
+      state.tokenClient.requestAccessToken({ prompt: "" });
+      return true;
+    } catch {
+      state.connecting = false;
+      state.renewing = false;
+      return false;
+    }
+  }
+
+  function handleTokenFailure(message) {
+    const wasRenewing = state.renewing;
+    state.connecting = false;
+    state.renewing = false;
+    if (wasRenewing && !elements.connectDialog.open) {
+      setBusy(false);
+      renderError(message, { reconnect: true });
+      return;
+    }
+    setConnectView("error", message);
+  }
+
   async function authorize() {
     const clientId = activeClientId();
 
@@ -723,6 +999,7 @@
     if (state.connecting) return;
 
     state.connecting = true;
+    state.renewing = false;
     state.connectError = "";
     setConnectView("working");
 
@@ -732,25 +1009,30 @@
         client_id: clientId,
         scope: GOOGLE_SCOPE,
         callback: (response) => {
-          state.connecting = false;
           if (response.error) {
-            setConnectView("error", "Google didn’t grant access. You can try again.");
+            handleTokenFailure("Google didn’t grant access. You can try again.");
             return;
           }
+          const renewed = state.renewing;
+          state.connecting = false;
+          state.renewing = false;
           state.accessToken = response.access_token;
           state.tokenExpiresAt = Date.now() + Number(response.expires_in || 3600) * 1000;
-          state.taskLists = null;
+          state.hadSession = true;
+          if (!renewed) {
+            state.taskLists = null;
+            state.calendars = null;
+          }
           if (elements.connectDialog.open) elements.connectDialog.close();
-          announce("Google Calendar connected.");
+          announce(renewed ? "Google session renewed." : "Google Calendar connected.");
           loadAgenda();
         },
         error_callback: (error) => {
-          state.connecting = false;
           const message =
             error?.type === "popup_closed"
               ? "The Google sign-in window was closed before access was granted."
               : "Google sign-in couldn’t open. Allow pop-ups for this site and try again.";
-          setConnectView("error", message);
+          handleTokenFailure(message);
         },
       });
       state.tokenClient.requestAccessToken({ prompt: "" });
@@ -791,7 +1073,10 @@
 
     state.accessToken = null;
     state.tokenExpiresAt = 0;
+    state.hadSession = false;
+    state.renewing = false;
     state.taskLists = null;
+    state.calendars = null;
     state.agendaRun += 1;
     state.agendaController?.abort();
     state.agendaController = null;
@@ -813,20 +1098,23 @@
         ? "Session expired"
         : "Not connected";
     const locationText = state.location
-      ? `${state.location.latitude.toFixed(2)}, ${state.location.longitude.toFixed(2)}`
+      ? state.location.city
+        ? `${state.location.city.name}, ${state.location.city.country}`
+        : `${state.location.latitude.toFixed(2)}, ${state.location.longitude.toFixed(2)}`
       : "Not set";
 
     elements.aboutBody.innerHTML = `
       <dl class="about-rows">
         <div class="about-row"><dt>Google Calendar</dt><dd class="${connected ? "" : "muted"}">${access}</dd></div>
-        <div class="about-row"><dt>Location</dt><dd class="${state.location ? "" : "muted"}">${locationText}</dd></div>
+        <div class="about-row"><dt>Location</dt><dd class="${state.location ? "" : "muted"}">${core.escapeHTML(locationText)}</dd></div>
       </dl>
-      <p>Dayline keeps your Google token in memory only. Events and tasks are read when you open a day and are never written here. Sunrise and sunset are calculated on this device, without sending coordinates anywhere.</p>
+      <p>daytime keeps your Google token in memory only. Events and tasks are read when you open a day and are never written here. Sunrise and sunset are calculated on this device; if you share your location, a rounded copy is remembered in this browser only and never sent anywhere.</p>
       <div class="sheet-actions">
         ${connected ? '<button class="button" type="button" data-about-action="disconnect">Disconnect Google Calendar</button>' : ""}
+        ${state.location && state.location.source !== "config" ? '<button class="button" type="button" data-about-action="forget-location">Forget location</button>' : ""}
         <button class="button" type="button" data-about-action="close">Done</button>
       </div>
-      <p class="fine-print">Dayline ${VERSION} · a Nothing-inspired calendar widget.</p>`;
+      <p class="fine-print">daytime ${VERSION} · a Nothing-inspired calendar widget.</p>`;
   }
 
   /* ------------------------------------------------------------------ *
@@ -839,11 +1127,16 @@
 
     const action = trigger.dataset.action;
     if (action === "connect" || action === "reconnect") {
+      if (action === "reconnect" && renewSessionIfNeeded()) {
+        renderLoading();
+        return;
+      }
       openConnectDialog(
         action === "reconnect" ? "Your Google session ended. Connect again to load this day." : ""
       );
     } else if (action === "retry") {
       if (isConnected()) loadAgenda();
+      else if (renewSessionIfNeeded()) renderLoading();
       else openConnectDialog("Connect Google Calendar to load this day.");
     }
   });
@@ -856,15 +1149,30 @@
     if (action === "authorize") authorize();
     else if (action === "save") saveClientId();
     else if (action === "setup") setConnectView("setup");
-    else if (action === "close") elements.connectDialog.close();
+    else if (action === "reset-client") {
+      writeStoredClientId("");
+      authorize();
+    } else if (action === "close") elements.connectDialog.close();
   });
 
   elements.aboutBody.addEventListener("click", (event) => {
     const trigger = event.target.closest("[data-about-action]");
     if (!trigger) return;
-    if (trigger.dataset.aboutAction === "disconnect") disconnect();
-    else if (trigger.dataset.aboutAction === "close") elements.aboutDialog.close();
+    const action = trigger.dataset.aboutAction;
+    if (action === "disconnect") disconnect();
+    else if (action === "forget-location") forgetLocation();
+    else if (action === "close") elements.aboutDialog.close();
   });
+
+  function forgetLocation() {
+    writeSavedLocation(null);
+    state.location = readConfiguredLocation(config.location);
+    resolveCity(state.location);
+    elements.location.textContent = "USE LOCATION";
+    renderSunTimes();
+    renderAbout();
+    announce("Location forgotten.");
+  }
 
   elements.closeConnect.addEventListener("click", () => elements.connectDialog.close());
   elements.closeAbout.addEventListener("click", () => elements.aboutDialog.close());
@@ -910,7 +1218,8 @@
   elements.location.addEventListener("click", requestLocation);
 
   elements.refresh.addEventListener("click", () => {
-    if (isConnected()) loadAgenda();
+    if (renewSessionIfNeeded()) renderLoading();
+    else if (isConnected()) loadAgenda();
     else openConnectDialog("Connect Google Calendar to load this day.");
   });
 
@@ -931,7 +1240,7 @@
    * ------------------------------------------------------------------ */
 
   function tick() {
-    elements.clock.textContent = formatTime(new Date());
+    renderClock();
 
     const todayKey = core.localDateKey(new Date());
     if (todayKey === state.todayKey) return;
@@ -946,6 +1255,7 @@
       if (isConnected()) loadAgenda();
       announce(`A new day. ${longDay(state.selectedDate)}.`);
     }
+    renderWeekLabels();
     renderWeek();
   }
 
@@ -960,22 +1270,81 @@
     });
   }
 
+  function clearShellCaches() {
+    // The desktop shell must never run from a stale service-worker cache.
+    if (!("serviceWorker" in navigator)) return;
+    navigator.serviceWorker
+      .getRegistrations()
+      .then((registrations) => Promise.all(registrations.map((entry) => entry.unregister())))
+      .catch(() => {});
+    if (window.caches && typeof window.caches.keys === "function") {
+      window.caches
+        .keys()
+        .then((keys) => Promise.all(keys.map((key) => window.caches.delete(key))))
+        .catch(() => {});
+    }
+  }
+
+  function wireDesktopShell() {
+    if (!shellMode) return;
+    if (!window.chrome || !window.chrome.webview) return;
+
+    const post = (message) => {
+      try {
+        window.chrome.webview.postMessage(message);
+      } catch {
+        /* Not running inside WebView2. */
+      }
+    };
+
+    if (elements.backButton) {
+      elements.backButton.addEventListener("click", () => post("back"));
+    }
+    if (elements.closeButton) {
+      elements.closeButton.addEventListener("click", () => post("quit"));
+    }
+
+    // The page cannot move a native window, so the shell starts the drag loop
+    // when the header or the big date is pressed.
+    const zones = [$(".topbar"), $(".date-hero")];
+    for (const zone of zones) {
+      if (!zone) continue;
+      zone.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        if (event.target.closest("button, a, input")) return;
+        event.preventDefault();
+        post("drag");
+      });
+    }
+  }
+
   function init() {
     if (["h11", "h12"].includes(formatters.time.resolvedOptions().hourCycle)) {
       $(".widget")?.classList.add("uses-12h");
     }
 
     renderHero();
+    renderWeekLabels();
     renderWeek();
     renderHeading();
     renderWelcome();
+    resolveCity(state.location);
+    if (state.location && state.location.source === "saved") {
+      elements.location.textContent = "REFRESH LOCATION";
+    }
+    wireDesktopShell();
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) tick();
     });
 
     window.setInterval(tick, TICK_MS);
-    registerServiceWorker();
+
+    if (shellMode) {
+      clearShellCaches();
+    } else {
+      registerServiceWorker();
+    }
   }
 
   init();

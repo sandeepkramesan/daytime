@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#050505</color>
+    <color name="surface">#171717</color>
+    <color name="text">#F5F5F5</color>
+    <color name="muted">#9C9C9C</color>
+    <color name="cool">#93A3B4</color>
+    <color name="quiet">#8F8F8F</color>
+    <color name="line">#292929</color>
+    <color name="red">#ED1C2E</color>
+    <color name="icon_background">#050505</color>
+</resources>

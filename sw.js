@@ -1,5 +1,5 @@
 /*
- * Dayline service worker.
+ * daytime service worker.
  *
  * - Navigations: network first, cached shell when offline.
  * - Same-origin assets: stale-while-revalidate, so a deploy is picked up on the
@@ -8,13 +8,14 @@
  *
  * Bump CACHE_VERSION together with app.js VERSION when you deploy changes.
  */
-const CACHE_VERSION = "v1.1.0";
-const CACHE_NAME = `dayline-${CACHE_VERSION}`;
+const CACHE_VERSION = "v1.3.0";
+const CACHE_NAME = `daytime-${CACHE_VERSION}`;
 
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css",
+  "./cities.js",
   "./core.js",
   "./app.js",
   "./config.js",
@@ -51,7 +52,7 @@ self.addEventListener("activate", (event) => {
       const keys = await caches.keys();
       await Promise.all(
         keys
-          .filter((key) => key.startsWith("dayline-") && key !== CACHE_NAME)
+          .filter((key) => key.startsWith("daytime-") && key !== CACHE_NAME)
           .map((key) => caches.delete(key))
       );
       await self.clients.claim();
@@ -59,14 +60,30 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-async function cacheResponse(request, response) {
-  if (!response || !response.ok) return;
+/**
+ * Store a copy of a response. The copy is taken synchronously, before any
+ * await: once the page starts reading the original body, clone() throws.
+ */
+function cacheResponse(request, response) {
+  if (!response || !response.ok) return Promise.resolve();
+  let copy;
   try {
-    const cache = await caches.open(CACHE_NAME);
-    await cache.put(request, response.clone());
+    copy = response.clone();
   } catch {
-    /* Quota or opaque responses: caching is best effort. */
+    return Promise.resolve();
   }
+  return caches
+    .open(CACHE_NAME)
+    .then((cache) => cache.put(request, copy))
+    .catch(() => {
+      /* Quota or opaque responses: caching is best effort. */
+    });
+}
+
+function isAppShellNavigation(url) {
+  const scope = new URL(self.registration.scope);
+  const relative = url.pathname.slice(scope.pathname.length);
+  return relative === "" || relative === "index.html";
 }
 
 self.addEventListener("fetch", (event) => {
@@ -81,7 +98,8 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         try {
           const response = await fetch(request);
-          await cacheResponse("./index.html", response);
+          // Only the app's own page may become the offline shell.
+          if (isAppShellNavigation(url)) event.waitUntil(cacheResponse("./index.html", response));
           return response;
         } catch {
           const cached = await caches.match("./index.html");
@@ -97,7 +115,7 @@ self.addEventListener("fetch", (event) => {
       const cached = await caches.match(request);
       const network = fetch(request)
         .then((response) => {
-          cacheResponse(request, response);
+          event.waitUntil(cacheResponse(request, response));
           return response;
         })
         .catch(() => null);

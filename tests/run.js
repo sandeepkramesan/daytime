@@ -4,3 +4,4 @@
 // script keeps the suite runnable in sandboxes that block child processes.
 require("./core.test.js");
 require("./app.test.js");
+require("./server.test.js");

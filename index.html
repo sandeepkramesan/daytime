@@ -2,15 +2,17 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!-- Only this site and Google sign-in may run scripts; data comes only from the Google APIs daytime reads. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; connect-src 'self' https://www.googleapis.com https://tasks.googleapis.com https://oauth2.googleapis.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; img-src 'self' data:; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#050505" />
     <meta name="color-scheme" content="dark" />
-    <meta name="description" content="Dayline is a calm daily calendar widget: today's date, live local time, sunrise and sunset, plus Google Calendar events and tasks for the day you pick." />
+    <meta name="description" content="daytime is a clock and calendar for your day: live local time, date, sunrise and sunset, plus Google Calendar events and tasks for the day you pick." />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Dayline" />
-    <title>Dayline — today's calendar</title>
+    <meta name="apple-mobile-web-app-title" content="daytime" />
+    <title>daytime — clock and calendar</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" type="image/svg+xml" href="./logo.svg" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
@@ -20,15 +22,23 @@
     <script src="./app.js" defer></script>
   </head>
   <body>
-    <main class="widget" aria-label="Dayline calendar widget">
+    <main class="widget" aria-label="daytime calendar widget">
       <header class="topbar">
-        <a class="brand" href="#top" aria-label="Dayline home">
+        <a class="brand" href="#top" aria-label="daytime home">
           <img src="./logo.svg" width="23" height="23" alt="" />
-          <span>DAYLINE</span>
+          <span>daytime</span>
         </a>
-        <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh calendar" title="Refresh calendar">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg>
-        </button>
+        <div class="topbar-actions">
+          <button class="icon-button shell-only" id="backButton" type="button" aria-label="Send daytime to the back" title="Send to back" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>
+          </button>
+          <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh calendar" title="Refresh calendar">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg>
+          </button>
+          <button class="icon-button shell-only" id="closeButton" type="button" aria-label="Close daytime" title="Close" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+          </button>
+        </div>
       </header>
 
       <section class="date-hero" id="top" aria-label="Selected date and time">
@@ -44,8 +54,8 @@
         <div class="sun-panel" aria-label="Sunrise and sunset">
           <div class="sun-row"><span>SUNRISE</span><strong id="sunriseTime">--:--</strong></div>
           <div class="sun-row"><span>SUNSET</span><strong id="sunsetTime">--:--</strong></div>
-          <button class="sun-location" id="locationButton" type="button" aria-label="Use this device's location to calculate sunrise and sunset">USE LOCATION</button>
           <span class="sun-status" id="sunStatus">LOCATION NEEDED</span>
+          <button class="sun-location" id="locationButton" type="button" aria-label="Use this device's location to calculate sunrise and sunset">USE LOCATION</button>
         </div>
       </section>
 
@@ -55,7 +65,7 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
           </button>
           <div class="week-grid">
-            <div class="week-labels" aria-hidden="true">
+            <div class="week-labels" id="weekLabels" aria-hidden="true">
               <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
             </div>
             <div class="week-days" id="weekDays" role="group" aria-label="Days of the week"></div>
@@ -78,15 +88,15 @@
           <noscript>
             <section class="status-card">
               <h2>JavaScript is needed</h2>
-              <p>Dayline keeps the date, clock and calendar in sync in your browser. Enable JavaScript to use it.</p>
+              <p>daytime keeps the date, clock and calendar in sync in your browser. Enable JavaScript to use it.</p>
             </section>
           </noscript>
         </div>
       </section>
 
       <footer class="widget-footer">
-        <p class="privacy-note">YOUR DAY, AT A GLANCE <span aria-hidden="true">·</span> NOTHING STORED</p>
-        <button class="info-button" id="aboutButton" type="button" aria-label="About Dayline: connection, location and privacy">
+        <p class="privacy-note">YOUR DAY, AT A GLANCE <span aria-hidden="true">·</span> NOTHING UPLOADED</p>
+        <button class="info-button" id="aboutButton" type="button" aria-label="About daytime: connection, location and privacy">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11.2v4.8"/><path d="M12 8.1v.5"/></svg>
         </button>
       </footer>
@@ -96,7 +106,7 @@
     <template id="welcomeTemplate">
       <section class="connect-card">
         <h2 tabindex="-1">Connect your calendar</h2>
-        <p data-message>See events and tasks for the day you pick. Dayline asks Google for read-only access and keeps your sign-in only in memory.</p>
+        <p data-message>See events and tasks for the day you pick. daytime asks Google for read-only access and keeps your sign-in only in memory.</p>
         <button class="action-button" type="button" data-action="connect">Connect Google Calendar <span aria-hidden="true">↗</span></button>
       </section>
     </template>
@@ -116,7 +126,7 @@
     <dialog class="sheet" id="aboutDialog" aria-labelledby="aboutTitle">
       <div class="sheet-inner">
         <header class="sheet-head">
-          <h2 id="aboutTitle">About Dayline</h2>
+          <h2 id="aboutTitle">About daytime</h2>
           <button class="icon-button sheet-close" id="closeAbout" type="button" aria-label="Close">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
           </button>
