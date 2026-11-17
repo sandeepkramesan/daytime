@@ -29,3 +29,6 @@ client_secret*.json
 # Build outputs: publish these as release assets instead of committing them
 desktop/native/*.exe
 desktop/native/preview.png
+
+# Local editor/agent settings
+.claude/
