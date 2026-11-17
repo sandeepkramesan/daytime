@@ -80,7 +80,7 @@ test("the dev server refuses secrets, traversal and foreign Host headers", async
   }
 });
 
-test("app.js and sw.js carry the package.json version", () => {
+test("app.js carries the package.json version", () => {
   for (const result of readVersions()) {
     assert.equal(result.actual, result.expected, `${result.file} — run npm run sync-version`);
   }

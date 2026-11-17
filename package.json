@@ -1,16 +1,22 @@
 {
   "name": "daytime",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
-  "description": "daytime — a clock and calendar for your day, on the web and as an Android home-screen widget.",
+  "description": "daytime: a desktop sticky-note clock and calendar for Windows, with sunrise/sunset and read-only Google Calendar and Tasks.",
   "license": "MIT",
   "scripts": {
-    "start": "node server.js",
+    "start": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/daytime.ps1",
+    "build": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/daytime.ps1 build",
+    "install-app": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/daytime.ps1 install",
+    "uninstall-app": "powershell -NoProfile -ExecutionPolicy Bypass -File desktop/daytime.ps1 uninstall",
+    "dev": "node server.js",
     "test": "node tests/run.js",
-    "icons": "python tools/make-icons.py",
     "sync-version": "node tools/sync-version.js"
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "os": [
+    "win32"
+  ]
 }

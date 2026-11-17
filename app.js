@@ -7,7 +7,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "1.3.0";
+  const VERSION = "1.4.0";
   const core = window.DaytimeCore;
   const $ = (selector, scope = document) => scope.querySelector(selector);
 
@@ -944,7 +944,8 @@
           <button class="button primary" type="button" data-connect-action="authorize">Continue with Google</button>
           <button class="button" type="button" data-connect-action="close">Not now</button>
         </div>
-        <p class="fine-print">Nothing is written to your calendar, and no event data is stored on this device.</p>`;
+        <p class="fine-print">Nothing is written to your calendar, and no event data is stored on this device.</p>
+        <p class="fine-print"><button class="today-link" type="button" data-connect-action="setup">Change client ID</button></p>`;
     }
 
     const focusTarget =
@@ -1259,19 +1260,10 @@
     renderWeek();
   }
 
-  function registerServiceWorker() {
-    const localHosts = ["localhost", "127.0.0.1", "[::1]"];
-    if (!("serviceWorker" in navigator)) return;
-    if (location.protocol !== "https:" && !localHosts.includes(location.hostname)) return;
-    window.addEventListener("load", () => {
-      navigator.serviceWorker.register("./sw.js").catch(() => {
-        /* Offline support is a bonus, not a requirement. */
-      });
-    });
-  }
-
-  function clearShellCaches() {
-    // The desktop shell must never run from a stale service-worker cache.
+  function clearOldServiceWorkers() {
+    // Earlier versions installed a service worker for offline use. The app now
+    // always runs from local files, so remove it and its caches: a stale cache
+    // would otherwise keep serving an old version.
     if (!("serviceWorker" in navigator)) return;
     navigator.serviceWorker
       .getRegistrations()
@@ -1340,11 +1332,7 @@
 
     window.setInterval(tick, TICK_MS);
 
-    if (shellMode) {
-      clearShellCaches();
-    } else {
-      registerServiceWorker();
-    }
+    clearOldServiceWorkers();
   }
 
   init();

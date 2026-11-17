@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /*
- * Copy the version from package.json into app.js (VERSION) and sw.js
- * (CACHE_VERSION), so a deploy always invalidates the service-worker cache.
+ * Copy the version from package.json into app.js (VERSION), which the About
+ * sheet shows.
  *
  *   npm version minor --no-git-tag-version && npm run sync-version
- *   npm run sync-version -- --check     (exit 1 if they disagree; used by tests)
+ *   npm run sync-version -- --check     (exit 1 if they disagree)
  */
 "use strict";
 
@@ -14,7 +14,6 @@ const path = require("node:path");
 const ROOT = path.join(__dirname, "..");
 const TARGETS = [
   { file: "app.js", pattern: /(const VERSION = ")[^"]*(";)/, format: (v) => v },
-  { file: "sw.js", pattern: /(const CACHE_VERSION = ")[^"]*(";)/, format: (v) => `v${v}` },
 ];
 
 function readVersions() {

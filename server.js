@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /*
- * Tiny static server for local development.
+ * Tiny static server for working on the UI in a normal browser (with
+ * DevTools) instead of the desktop note.
  *
- *   npm start            → http://127.0.0.1:4173
- *   PORT=8080 npm start  → http://127.0.0.1:8080
+ *   npm run dev            → http://127.0.0.1:4173
+ *   PORT=8080 npm run dev  → http://127.0.0.1:8080
+ *
+ * Stop the desktop note first: it serves the same port.
  *
  * Google OAuth requires an origin that matches the "Authorized JavaScript
  * origins" entry exactly, so keep the default port unless you also update it in
@@ -20,7 +23,7 @@ const ROOT = __dirname;
 const PORT = Number.parseInt(process.env.PORT || "4173", 10);
 const HOST = process.env.HOST || "127.0.0.1";
 // Extra Host header names to accept besides localhost/127.0.0.1/[::1], e.g.
-// ALLOWED_HOSTS=192.168.1.20 when HOST=0.0.0.0 for testing on a phone.
+// ALLOWED_HOSTS=192.168.1.20 when HOST=0.0.0.0 for testing from another device.
 const ALLOWED_HOSTS = (process.env.ALLOWED_HOSTS || "")
   .split(",")
   .map((value) => value.trim())
@@ -31,13 +34,9 @@ const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
-  ".webmanifest": "application/manifest+json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".ico": "image/x-icon",
-  ".md": "text/markdown; charset=utf-8",
-  ".txt": "text/plain; charset=utf-8",
-  ".woff2": "font/woff2",
 };
 
 function send(res, status, body, headers = {}) {
@@ -119,7 +118,7 @@ const server = createServer();
 
 server.on("error", (error) => {
   if (error.code === "EADDRINUSE") {
-    console.error(`Port ${PORT} is already in use. Try: PORT=8080 npm start`);
+    console.error(`Port ${PORT} is already in use (is the desktop note running?). Try: PORT=8080 npm run dev`);
     process.exitCode = 1;
     return;
   }

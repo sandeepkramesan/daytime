@@ -1,34 +1,21 @@
+# OS clutter
 .DS_Store
 Thumbs.db
+
+# Logs (desktop\boot.log)
 *.log
+
+# Desktop build output and runtime data
+desktop/*.exe
+desktop/data/
+desktop/preview.png
+
+# Secrets: the app never needs an OAuth client secret
 .env
 .env.*
-!.env.example
-node_modules/
-.review/
-.android/
-android/build/
-android/debug.keystore
-__pycache__/
-.npm-cache/
-.electron-cache/
-desktop/screenshot.png
-android/release.keystore
-android/keystore.properties
-desktop/data/
-desktop/native/data/
-desktop/launch.log
-desktop/native/boot.log
-.nuget/
-desktop/native/preview.png
-
-# Local source data and OAuth client secrets (the web app never needs a secret)
-.data/
 client_secret*.json
+.data/
 
-# Build outputs: publish these as release assets instead of committing them
-desktop/native/*.exe
-desktop/native/preview.png
-
-# Local editor/agent settings
+# Tooling
+node_modules/
 .claude/

@@ -19,9 +19,15 @@ namespace DaytimeNative
         {
             try
             {
+                string file = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "boot.log");
+                FileInfo info = new FileInfo(file);
+                if (info.Exists && info.Length > 100000)
+                {
+                    File.Delete(file);
+                }
                 File.AppendAllText(
-                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "boot.log"),
-                    DateTime.Now.ToString("HH:mm:ss") + " " + message + Environment.NewLine);
+                    file,
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " " + message + Environment.NewLine);
             }
             catch
             {
@@ -29,8 +35,34 @@ namespace DaytimeNative
             }
         }
 
+        internal const string ShowSignalName = @"Local\daytime-desktop-show";
+        private const string InstanceMutexName = @"Local\daytime-desktop-instance";
+
         [STAThread]
         private static void Main()
+        {
+            bool firstInstance;
+            using (Mutex instance = new Mutex(true, InstanceMutexName, out firstInstance))
+            {
+                if (!firstInstance)
+                {
+                    // Already running (maybe hidden in the tray): bring it back
+                    // instead of opening a second note.
+                    try
+                    {
+                        EventWaitHandle.OpenExisting(ShowSignalName).Set();
+                    }
+                    catch
+                    {
+                        // The first instance is still starting up.
+                    }
+                    return;
+                }
+                Run();
+            }
+        }
+
+        private static void Run()
         {
             Log("main");
             Application.EnableVisualStyles();
@@ -115,6 +147,8 @@ namespace DaytimeNative
                     SendToBack();
                 }
             };
+
+            ListenForShowSignal();
 
             FormClosing += delegate
             {
@@ -291,6 +325,30 @@ namespace DaytimeNative
             }
         }
 
+        private void ListenForShowSignal()
+        {
+            EventWaitHandle signal = new EventWaitHandle(false, EventResetMode.AutoReset, Program.ShowSignalName);
+            Thread thread = new Thread(delegate()
+            {
+                while (true)
+                {
+                    signal.WaitOne();
+                    if (IsDisposed) return;
+                    if (!IsHandleCreated) continue;
+                    try
+                    {
+                        BeginInvoke((MethodInvoker)RestoreWindow);
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        return; // Form is closing.
+                    }
+                }
+            });
+            thread.IsBackground = true;
+            thread.Start();
+        }
+
         private void RestoreWindow()
         {
             WindowState = FormWindowState.Normal;
@@ -372,14 +430,14 @@ namespace DaytimeNative
 
         private static string ResolveRoot()
         {
-            // Works both in the repository (desktop/native -> ../..) and in an
-            // installed copy where the web files sit next to the exe.
+            // Works both in the repository (desktop -> ..) and in an installed
+            // copy where the web files sit next to the exe.
             string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
             string[] candidates = new string[]
             {
                 baseDirectory,
                 Path.Combine(baseDirectory, "app"),
-                Path.GetFullPath(Path.Combine(baseDirectory, "..", "..")),
+                Path.GetFullPath(Path.Combine(baseDirectory, "..")),
             };
 
             foreach (string candidate in candidates)
@@ -615,9 +673,9 @@ namespace DaytimeNative
 
         private static readonly string[] PublicFiles = new string[]
         {
-            // Keep in sync with public-files.js and APP_SHELL in sw.js.
+            // Keep in sync with public-files.js and $webFiles in daytime.ps1.
             "index.html", "styles.css", "app.js", "core.js", "cities.js",
-            "config.js", "sw.js", "logo.svg", "manifest.webmanifest",
+            "config.js", "logo.svg",
         };
 
         private static string PublicPath(string target)
@@ -663,7 +721,6 @@ namespace DaytimeNative
                 case ".css": return "text/css; charset=utf-8";
                 case ".js": return "text/javascript; charset=utf-8";
                 case ".json": return "application/json; charset=utf-8";
-                case ".webmanifest": return "application/manifest+json; charset=utf-8";
                 case ".svg": return "image/svg+xml";
                 case ".png": return "image/png";
                 case ".md": return "text/markdown; charset=utf-8";

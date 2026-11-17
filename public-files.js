@@ -1,10 +1,10 @@
 /*
- * The only files the local servers (server.js, desktop/main.js) may serve.
+ * The only files the local servers (server.js, desktop/DaytimeNote.cs) may serve.
  *
  * The repository also holds keystores, OAuth secrets, .git and browser
  * profiles, so the servers use an allowlist instead of "everything under the
- * folder". Keep this list in sync with APP_SHELL in sw.js and PublicFiles in
- * desktop/native/DaytimeNote.cs.
+ * folder". Keep this list in sync with PublicFiles in desktop/DaytimeNote.cs
+ * and $webFiles in desktop/daytime.ps1.
  */
 "use strict";
 
@@ -15,9 +15,7 @@ const PUBLIC_FILES = new Set([
   "core.js",
   "cities.js",
   "config.js",
-  "sw.js",
   "logo.svg",
-  "manifest.webmanifest",
 ]);
 
 const PUBLIC_PATTERNS = [/^icons\/[a-z0-9-]+\.png$/i];
