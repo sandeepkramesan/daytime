@@ -92,6 +92,7 @@
     agendaRun: 0,
     agendaController: null,
     calendars: null,
+    accountEmail: "",
     calendarsFetchedAt: 0,
     taskLists: null,
     taskListsFetchedAt: 0,
@@ -561,7 +562,7 @@
 
     renderContent(`
       <section class="status-card">
-        <div class="status-title"><div><h2 tabindex="-1">${items.length} ${items.length === 1 ? "item" : "items"} for your day</h2><p>From your Google Calendar and Tasks</p></div><span class="status-tag">LIVE</span></div>
+        <div class="status-title"><div><h2 tabindex="-1">${items.length} ${items.length === 1 ? "item" : "items"} for your day</h2><p>${state.accountEmail ? `From ${core.escapeHTML(state.accountEmail)}` : "From your Google Calendar and Tasks"}</p></div><span class="status-tag">LIVE</span></div>
         <ul class="event-list">${rows}</ul>
         ${warningMarkup}
       </section>`);
@@ -662,6 +663,11 @@
         "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=250&fields=nextPageToken,items(id,primary,selected,hidden,deleted)",
         { signal, service: "Calendar" }
       );
+      // The primary calendar's ID is the account's email address.
+      const primary = entries.find((entry) => entry && entry.primary);
+      if (primary && typeof primary.id === "string" && primary.id.includes("@")) {
+        state.accountEmail = primary.id;
+      }
       calendars = entries
         .filter((entry) => entry && typeof entry.id === "string" && entry.id)
         .filter((entry) => !entry.deleted && !entry.hidden && (entry.primary || entry.selected))
@@ -990,7 +996,11 @@
     setConnectView("error", message);
   }
 
-  async function authorize() {
+  /**
+   * Start Google sign-in. `prompt: "select_account"` shows Google's account
+   * chooser (used by Switch account); the default reuses the signed-in account.
+   */
+  async function authorize({ prompt = "" } = {}) {
     const clientId = activeClientId();
 
     if (!clientId) {
@@ -1023,6 +1033,7 @@
           if (!renewed) {
             state.taskLists = null;
             state.calendars = null;
+            state.accountEmail = "";
           }
           if (elements.connectDialog.open) elements.connectDialog.close();
           announce(renewed ? "Google session renewed." : "Google Calendar connected.");
@@ -1036,7 +1047,7 @@
           handleTokenFailure(message);
         },
       });
-      state.tokenClient.requestAccessToken({ prompt: "" });
+      state.tokenClient.requestAccessToken({ prompt });
     } catch (error) {
       state.connecting = false;
       setConnectView("error", error.message || "Google sign-in could not start.");
@@ -1063,7 +1074,36 @@
     authorize();
   }
 
-  function disconnect() {
+  /** Tell the desktop shell (WebView2) something; a no-op in a normal browser. */
+  function postToShell(message) {
+    try {
+      window.chrome?.webview?.postMessage(message);
+    } catch {
+      /* Not running inside the desktop note. */
+    }
+  }
+
+  /** Drop the current Google session from memory and stop any loading. */
+  function clearSession() {
+    state.accessToken = null;
+    state.tokenExpiresAt = 0;
+    state.hadSession = false;
+    state.renewing = false;
+    state.connecting = false;
+    state.taskLists = null;
+    state.calendars = null;
+    state.accountEmail = "";
+    state.agendaRun += 1;
+    state.agendaController?.abort();
+    state.agendaController = null;
+    setBusy(false);
+  }
+
+  /**
+   * Sign out: revoke daytime's access for this account and, in the desktop
+   * note, forget the Google sign-in, so the next Connect asks for an account.
+   */
+  function signOut() {
     if (state.accessToken && window.google?.accounts?.oauth2?.revoke) {
       try {
         window.google.accounts.oauth2.revoke(state.accessToken, () => {});
@@ -1071,20 +1111,21 @@
         /* Revoking is best effort; the token is dropped locally either way. */
       }
     }
-
-    state.accessToken = null;
-    state.tokenExpiresAt = 0;
-    state.hadSession = false;
-    state.renewing = false;
-    state.taskLists = null;
-    state.calendars = null;
-    state.agendaRun += 1;
-    state.agendaController?.abort();
-    state.agendaController = null;
-    setBusy(false);
+    postToShell("signout");
+    clearSession();
     if (elements.aboutDialog.open) elements.aboutDialog.close();
-    renderWelcome("You’re disconnected. Connect again whenever you want to see your calendar.");
-    announce("Disconnected from Google Calendar.");
+    renderWelcome("You’re signed out. Connect again with any Google account.");
+    announce("Signed out of Google Calendar.");
+  }
+
+  /** Switch account: keep the current grant, but let the user pick another account. */
+  function switchAccount() {
+    clearSession();
+    if (elements.aboutDialog.open) elements.aboutDialog.close();
+    renderWelcome("Choose the Google account to show.");
+    state.connectError = "";
+    if (!elements.connectDialog.open) elements.connectDialog.showModal();
+    authorize({ prompt: "select_account" });
   }
 
   /* ------------------------------------------------------------------ *
@@ -1093,9 +1134,10 @@
 
   function renderAbout() {
     const connected = isConnected();
+    const signedIn = connected || state.hadSession;
     const access = connected
-      ? "Connected, read-only"
-      : state.accessToken
+      ? state.accountEmail || "Connected, read-only"
+      : state.hadSession
         ? "Session expired"
         : "Not connected";
     const locationText = state.location
@@ -1106,12 +1148,13 @@
 
     elements.aboutBody.innerHTML = `
       <dl class="about-rows">
-        <div class="about-row"><dt>Google Calendar</dt><dd class="${connected ? "" : "muted"}">${access}</dd></div>
+        <div class="about-row"><dt>Google Calendar</dt><dd class="${connected ? "" : "muted"}">${core.escapeHTML(access)}</dd></div>
         <div class="about-row"><dt>Location</dt><dd class="${state.location ? "" : "muted"}">${core.escapeHTML(locationText)}</dd></div>
       </dl>
       <p>daytime keeps your Google token in memory only. Events and tasks are read when you open a day and are never written here. Sunrise and sunset are calculated on this device; if you share your location, a rounded copy is remembered in this browser only and never sent anywhere.</p>
       <div class="sheet-actions">
-        ${connected ? '<button class="button" type="button" data-about-action="disconnect">Disconnect Google Calendar</button>' : ""}
+        ${signedIn ? '<button class="button" type="button" data-about-action="switch-account">Switch Google account</button>' : ""}
+        ${signedIn ? '<button class="button" type="button" data-about-action="sign-out">Sign out</button>' : ""}
         ${state.location && state.location.source !== "config" ? '<button class="button" type="button" data-about-action="forget-location">Forget location</button>' : ""}
         <button class="button" type="button" data-about-action="close">Done</button>
       </div>
@@ -1160,7 +1203,8 @@
     const trigger = event.target.closest("[data-about-action]");
     if (!trigger) return;
     const action = trigger.dataset.aboutAction;
-    if (action === "disconnect") disconnect();
+    if (action === "sign-out") signOut();
+    else if (action === "switch-account") switchAccount();
     else if (action === "forget-location") forgetLocation();
     else if (action === "close") elements.aboutDialog.close();
   });

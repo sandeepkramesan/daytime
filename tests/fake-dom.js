@@ -117,8 +117,9 @@ function createHarness({ fetch: fetchImpl, config = {}, storage = {} } = {}) {
             calls.push("initTokenClient");
             calls.push(`client:${clientConfig.client_id}`);
             return {
-              requestAccessToken() {
+              requestAccessToken(options = {}) {
                 calls.push("requestAccessToken");
+                calls.push(`prompt:${options.prompt ?? ""}`);
                 clientConfig.callback({ access_token: "fake-token", expires_in: 3600 });
               },
             };
@@ -127,6 +128,8 @@ function createHarness({ fetch: fetchImpl, config = {}, storage = {} } = {}) {
       },
     },
   };
+  // The desktop note's WebView2 bridge, recorded as "shell:<message>".
+  window.chrome = { webview: { postMessage: (message) => calls.push(`shell:${message}`) } };
   window.window = window;
 
   const sandbox = {

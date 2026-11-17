@@ -138,15 +138,10 @@ namespace DaytimeNative
             Controls.Add(browser);
             Load += OnLoaded;
 
-            // Desktop-note behaviour: whenever another window takes focus, drop
-            // behind it instead of floating above everything.
-            Deactivate += delegate
-            {
-                if (!alwaysOnTop)
-                {
-                    SendToBack();
-                }
-            };
+            // Desktop-note behaviour: other apps cover the note normally when
+            // they are activated, but the note never drops behind the desktop,
+            // so clicking the desktop or pressing Win+D leaves it in place.
+            HandleCreated += delegate { WatchDesktop(); };
 
             ListenForShowSignal();
 
@@ -321,6 +316,121 @@ namespace DaytimeNative
             else if (message == "quit")
             {
                 Close();
+            }
+            else if (message == "signout")
+            {
+                // Forget the Google session held in this WebView profile, so the
+                // next sign-in asks which account to use. The app itself keeps
+                // its settings in localStorage, which this does not touch.
+                try
+                {
+                    browser.CoreWebView2.CookieManager.DeleteAllCookies();
+                }
+                catch (Exception error)
+                {
+                    Program.Log("sign out: " + error.Message);
+                }
+            }
+        }
+
+        /* ---------------------------------------------------------------- */
+        /* Staying on the desktop                                            */
+        /* ---------------------------------------------------------------- */
+
+        private delegate void WinEventProc(IntPtr hook, uint eventType, IntPtr window,
+            int objectId, int childId, uint thread, uint time);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr module,
+            WinEventProc callback, uint process, uint thread, uint flags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool UnhookWinEvent(IntPtr hook);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr window, StringBuilder name, int length);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int width, int height, uint flags);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr window);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr window, int command);
+
+        private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+        private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOACTIVATE = 0x0010;
+        private const uint SWP_SHOWWINDOW = 0x0040;
+        private const int SW_SHOWNOACTIVATE = 4;
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
+
+        private WinEventProc foregroundCallback; // Held in a field so the GC keeps it alive.
+        private IntPtr foregroundHook = IntPtr.Zero;
+        private System.Windows.Forms.Timer desktopTimer;
+        private int desktopPasses;
+
+        /// <summary>
+        /// When the desktop itself becomes the foreground window (a click on
+        /// the wallpaper, Win+D, "Show desktop"), lift the note back above it.
+        /// Explorer animates Win+D, so the lift is repeated briefly.
+        /// </summary>
+        private void WatchDesktop()
+        {
+            if (foregroundHook != IntPtr.Zero) return;
+
+            desktopTimer = new System.Windows.Forms.Timer();
+            desktopTimer.Interval = 200;
+            desktopTimer.Tick += delegate
+            {
+                KeepAboveDesktop();
+                desktopPasses--;
+                if (desktopPasses <= 0) desktopTimer.Stop();
+            };
+
+            foregroundCallback = delegate(IntPtr hook, uint eventType, IntPtr window,
+                int objectId, int childId, uint thread, uint time)
+            {
+                if (!IsDesktopWindow(window)) return;
+                KeepAboveDesktop();
+                desktopPasses = 4;
+                desktopTimer.Start();
+            };
+            foregroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND,
+                IntPtr.Zero, foregroundCallback, 0, 0, WINEVENT_OUTOFCONTEXT);
+
+            FormClosed += delegate
+            {
+                if (foregroundHook != IntPtr.Zero) UnhookWinEvent(foregroundHook);
+                foregroundHook = IntPtr.Zero;
+                desktopTimer.Stop();
+            };
+        }
+
+        private static bool IsDesktopWindow(IntPtr window)
+        {
+            if (window == IntPtr.Zero) return false;
+            StringBuilder name = new StringBuilder(64);
+            GetClassName(window, name, name.Capacity);
+            string value = name.ToString();
+            return value == "WorkerW" || value == "Progman";
+        }
+
+        private void KeepAboveDesktop()
+        {
+            // Hidden to the tray on purpose: leave it there.
+            if (!Visible || IsDisposed) return;
+            if (IsIconic(Handle)) ShowWindow(Handle, SW_SHOWNOACTIVATE);
+            // Topmost and straight back: ends up first among normal windows,
+            // above the desktop, without taking focus. Pinned notes stay topmost.
+            SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            if (!alwaysOnTop)
+            {
+                SetWindowPos(Handle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             }
         }
 

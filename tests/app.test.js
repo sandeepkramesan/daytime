@@ -188,16 +188,22 @@ test("today keeps the white pill while another day is ringed", () => {
   assert.equal(harness.query("#agendaHeading").textContent, weekdayLabel(yesterday));
 });
 
-test("disconnecting clears the session and offers the connect flow again", async () => {
+function clickAbout(harness, action) {
+  harness.query("#aboutBody").dispatch("click", {
+    target: { closest: () => ({ dataset: { aboutAction: action } }) },
+  });
+}
+
+test("signing out clears the session, forgets the Google sign-in and offers the connect flow again", async () => {
   const today = new Date();
   const harness = createHarness({ fetch: dayFetch(localKey(today)) });
 
   await connect(harness);
   harness.query("#aboutButton").dispatch("click", {});
-  harness.query("#aboutBody").dispatch("click", {
-    target: { closest: () => ({ dataset: { aboutAction: "disconnect" } }) },
-  });
+  assert.match(harness.query("#aboutBody").innerHTML, /data-about-action="sign-out"/);
+  clickAbout(harness, "sign-out");
 
+  assert.ok(harness.calls.includes("shell:signout"));
   assert.equal(harness.query("#aboutDialog").open, false);
   assert.equal(harness.query("#refreshButton").disabled, false);
   assert.equal(harness.content.children.length, 1);
@@ -344,4 +350,32 @@ test("an expired session renews on the next click instead of asking to sign in a
   assert.equal(harness.calls.filter((call) => call === "requestAccessToken").length, 2);
   assert.equal(harness.query("#connectDialog").open, false);
   assert.match(harness.content.innerHTML, /Design review/);
+});
+
+test("switch account asks Google for the account chooser and loads the new account", async () => {
+  const dayKey = localKey(new Date());
+  let account = "first@example.com";
+  const harness = createHarness({
+    fetch: async (url) => {
+      if (url.includes("/calendarList")) return json({ items: [{ id: account, primary: true }] });
+      if (url.includes("/events")) {
+        return json({ items: [{ status: "confirmed", summary: `${account} meeting`, start: { dateTime: `${dayKey}T10:00:00` } }] });
+      }
+      return json({});
+    },
+  });
+
+  await connect(harness);
+  assert.match(harness.content.innerHTML, /From first@example\.com/);
+  harness.query("#aboutButton").dispatch("click", {});
+  assert.match(harness.query("#aboutBody").innerHTML, /first@example\.com/);
+
+  account = "second@example.com";
+  clickAbout(harness, "switch-account");
+  await wait(60);
+
+  assert.ok(harness.calls.includes("prompt:select_account"));
+  assert.ok(!harness.calls.includes("shell:signout"));
+  assert.match(harness.content.innerHTML, /second@example\.com meeting/);
+  assert.doesNotMatch(harness.content.innerHTML, /first@example\.com/);
 });

@@ -2,7 +2,7 @@
 
 A desktop sticky note for Windows: live clock, date, sunrise and sunset, a week strip, and the day's Google Calendar events and tasks. Nothing design language — black glass, thin lines, big light numerals, one red accent.
 
-It is a 23 KB native app (WinForms + the Edge **WebView2** runtime that ships with Windows 10/11). No Electron, no Node, no installer framework.
+It is a small (about 100 KB) native app (WinForms + the Edge **WebView2** runtime that ships with Windows 10/11). No Electron, no Node, no installer framework.
 
 ---
 
@@ -32,7 +32,7 @@ Requirements: Windows 10 or 11 with the **WebView2 runtime** (preinstalled on Wi
 ## Using the note
 
 - **Drag** it by the top bar or the big date. It remembers its position.
-- **Sits behind other windows** like a desktop note; *Always on top* in the tray pins it above.
+- **Stays on the desktop until you close it.** Clicking the desktop, Win+D or *Show desktop* leaves it in place. Other apps cover it while you use them; *Always on top* in the tray keeps it above them too.
 - It has no taskbar button and stays out of Alt+Tab; reach it from the tray icon.
 - **—** hides it to the tray; click the tray icon to bring it back. **×** quits.
 - Tray menu: show/hide, always on top, start with Windows, reset position, quit.
@@ -45,6 +45,11 @@ Requirements: Windows 10 or 11 with the **WebView2 runtime** (preinstalled on Wi
 ## Google Calendar
 
 Click **Connect Google Calendar** and sign in. Access is **read-only**: events from every calendar you show in Google Calendar, plus tasks due that day. The sign-in token stays in memory; when it is about to expire (after about an hour), the next click renews it without the consent screen.
+
+The **ⓘ** button at the bottom shows which account is connected, with two options:
+
+- **Switch Google account** opens Google's account chooser, where you can pick another signed-in account or add one.
+- **Sign out** revokes daytime's access for that account and forgets the Google sign-in inside the note, so the next **Connect** starts from a clean sign-in.
 
 A client ID is set in [`config.js`](./config.js). To use your own Google Cloud project instead (about 3 minutes):
 
