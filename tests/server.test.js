@@ -12,11 +12,11 @@ const { publicPath, isAllowedHost } = require("../public-files.js");
 const { createServer } = require("../server.js");
 const { readVersions } = require("../tools/sync-version.js");
 
-test("publicPath allows the app shell and icons only", () => {
+test("publicPath allows the app files only", () => {
   assert.equal(publicPath("/"), "index.html");
   assert.equal(publicPath("/index.html"), "index.html");
   assert.equal(publicPath("/app.js"), "app.js");
-  assert.equal(publicPath("/icons/icon-192.png"), "icons/icon-192.png");
+  assert.equal(publicPath("/logo.svg"), "logo.svg");
 
   for (const blocked of [
     "/.data/client_secret_daytime.json",
@@ -27,8 +27,10 @@ test("publicPath allows the app shell and icons only", () => {
     "/server.js",
     "/package.json",
     "/../secret",
-    "/icons/../.data/x",
-    "/icons/" + String.fromCharCode(92) + "x.png", // a Windows-style backslash path
+    "/icons/icon-192.png",
+    "/desktop/daytime.ico",
+    "/x/../.data/x",
+    "/x" + String.fromCharCode(92) + "app.js", // a Windows-style backslash path
     "/.env",
   ]) {
     assert.equal(publicPath(blocked), null, blocked);
@@ -69,7 +71,7 @@ test("the dev server refuses secrets, traversal and foreign Host headers", async
   try {
     assert.equal(await request(port, "/"), 200);
     assert.equal(await request(port, "/index.html"), 200);
-    assert.equal(await request(port, "/icons/icon-192.png"), 200);
+    assert.equal(await request(port, "/logo.svg"), 200);
     assert.equal(await request(port, "/.data/client_secret_daytime.json"), 404);
     assert.equal(await request(port, "/android/keystore.properties"), 404);
     assert.equal(await request(port, "/.git/config"), 404);

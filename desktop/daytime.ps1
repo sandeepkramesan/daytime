@@ -30,6 +30,7 @@ $ErrorActionPreference = "Stop"
 $desktop = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo = Split-Path -Parent $desktop
 $source = Join-Path $desktop "DaytimeNote.cs"
+$icon = Join-Path $desktop "daytime.ico"
 $exe = Join-Path $desktop "DaytimeNote.exe"
 $dlls = @("Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll", "WebView2Loader.dll")
 
@@ -54,7 +55,8 @@ function Stop-Daytime([string]$Under) {
 
 function Test-NeedsBuild {
     if (-not (Test-Path $exe)) { return $true }
-    return (Get-Item $source).LastWriteTimeUtc -gt (Get-Item $exe).LastWriteTimeUtc
+    $built = (Get-Item $exe).LastWriteTimeUtc
+    return ((Get-Item $source).LastWriteTimeUtc -gt $built) -or ((Get-Item $icon).LastWriteTimeUtc -gt $built)
 }
 
 function Invoke-Build {
@@ -69,7 +71,10 @@ function Invoke-Build {
     Write-Host "Building DaytimeNote.exe..."
     $references = @("System.dll", "System.Core.dll", "System.Drawing.dll", "System.Windows.Forms.dll") +
         ($dlls | Where-Object { $_ -ne "WebView2Loader.dll" } | ForEach-Object { Join-Path $desktop $_ })
-    $arguments = @("/nologo", "/target:winexe", "/platform:x64", "/optimize+", "/out:$exe") +
+    # The icon goes in twice: as the Win32 icon Explorer and Start show, and as
+    # a resource the tray and window load at their exact size.
+    $arguments = @("/nologo", "/target:winexe", "/platform:x64", "/optimize+", "/out:$exe",
+        "/win32icon:$icon", "/resource:$icon,daytime.ico") +
         ($references | ForEach-Object { "/r:$_" }) + @($source)
 
     & $csc @arguments
@@ -83,7 +88,14 @@ function Set-Shortcut([string]$Path, [string]$Target) {
     $link.TargetPath = $Target
     $link.WorkingDirectory = Split-Path -Parent $Target
     $link.Description = "daytime clock and calendar"
+    $link.IconLocation = "$Target,0"
     $link.Save()
+}
+
+function Update-IconCache {
+    # Explorer caches shortcut icons; ask it to reload so a new icon shows at once.
+    $refresh = Join-Path $env:WINDIR "System32\ie4uinit.exe"
+    if (Test-Path $refresh) { & $refresh -show 2>$null }
 }
 
 function Invoke-Install {
@@ -105,11 +117,10 @@ function Invoke-Install {
     Copy-Item $exe $target
     foreach ($dll in $dlls) { Copy-Item (Join-Path $desktop $dll) $target }
     foreach ($file in $webFiles) { Copy-Item (Join-Path $repo $file) $target }
-    New-Item -ItemType Directory -Force -Path (Join-Path $target "icons") | Out-Null
-    Copy-Item (Join-Path $repo "icons\icon-192.png") (Join-Path $target "icons")
 
     $installedExe = Join-Path $target "DaytimeNote.exe"
     Set-Shortcut $startMenuLink $installedExe
+    Update-IconCache
     Write-Host "Start Menu: daytime"
 
     # Older installers used a Startup-folder shortcut; the Run value replaces it.

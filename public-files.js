@@ -18,8 +18,6 @@ const PUBLIC_FILES = new Set([
   "logo.svg",
 ]);
 
-const PUBLIC_PATTERNS = [/^icons\/[a-z0-9-]+\.png$/i];
-
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
@@ -32,9 +30,7 @@ function publicPath(pathname) {
   if (relative === "") relative = "index.html";
   if (relative.includes("\\") || relative.includes("\0")) return null;
   if (relative.split("/").some((segment) => segment === "" || segment.startsWith("."))) return null;
-  if (PUBLIC_FILES.has(relative)) return relative;
-  if (PUBLIC_PATTERNS.some((pattern) => pattern.test(relative))) return relative;
-  return null;
+  return PUBLIC_FILES.has(relative) ? relative : null;
 }
 
 /**

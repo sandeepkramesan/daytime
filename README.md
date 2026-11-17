@@ -33,6 +33,7 @@ Requirements: Windows 10 or 11 with the **WebView2 runtime** (preinstalled on Wi
 
 - **Drag** it by the top bar or the big date. It remembers its position.
 - **Sits behind other windows** like a desktop note; *Always on top* in the tray pins it above.
+- It has no taskbar button and stays out of Alt+Tab; reach it from the tray icon.
 - **—** hides it to the tray; click the tray icon to bring it back. **×** quits.
 - Tray menu: show/hide, always on top, start with Windows, reset position, quit.
 - **‹ ›** move a week at a time; click a day to see its agenda; **Today** jumps back.
@@ -108,7 +109,8 @@ index.html, styles.css      UI
 app.js, core.js             behaviour; pure date and sun maths
 cities.js                   offline nearest-city list
 config.js                   settings
-logo.svg, icons/            mark and tray icon
+logo.svg                    mark shown in the UI
+desktop/daytime.ico         app icon (Start, shortcuts, tray)
 public-files.js, server.js  file allowlist and the browser dev server
 tests/, tools/              tests and the version script
 ```

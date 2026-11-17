@@ -130,7 +130,7 @@ namespace DaytimeNative
 
             StartServer();
             BuildTray();
-            Icon = LoadTrayIcon();
+            Icon = LoadAppIcon(SystemInformation.IconSize);
             ApplySavedBounds();
 
             browser.Dock = DockStyle.Fill;
@@ -313,11 +313,10 @@ namespace DaytimeNative
             }
             else if (message == "back")
             {
-                // Drop out of always-on-top and move behind other windows.
+                // Hide to the tray. (Minimizing a tool window would leave a
+                // small title stub above the taskbar.)
                 SaveBounds();
-                alwaysOnTop = false;
-                TopMost = false;
-                WindowState = FormWindowState.Minimized;
+                Hide();
             }
             else if (message == "quit")
             {
@@ -349,6 +348,24 @@ namespace DaytimeNative
             thread.Start();
         }
 
+        /// <summary>
+        /// A tool window: no taskbar button and not listed in Alt+Tab or Task
+        /// View, so the note stays a quiet desktop object. It is reached from
+        /// the tray icon instead.
+        /// </summary>
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                const int WS_EX_TOOLWINDOW = 0x00000080;
+                const int WS_EX_APPWINDOW = 0x00040000;
+                CreateParams parameters = base.CreateParams;
+                parameters.ExStyle |= WS_EX_TOOLWINDOW;
+                parameters.ExStyle &= ~WS_EX_APPWINDOW;
+                return parameters;
+            }
+        }
+
         private void RestoreWindow()
         {
             WindowState = FormWindowState.Normal;
@@ -359,7 +376,7 @@ namespace DaytimeNative
         private void BuildTray()
         {
             tray = new NotifyIcon();
-            tray.Icon = LoadTrayIcon();
+            tray.Icon = LoadAppIcon(SystemInformation.SmallIconSize);
             tray.Text = "daytime";
             tray.Visible = true;
             tray.DoubleClick += delegate { RestoreWindow(); };
@@ -404,16 +421,20 @@ namespace DaytimeNative
             tray.ContextMenuStrip = menu;
         }
 
-        private Icon LoadTrayIcon()
+        /// <summary>
+        /// daytime.ico is compiled into the exe twice: as the Win32 icon that
+        /// Explorer, Start and shortcuts show, and as a managed resource so the
+        /// tray and window get the frame drawn for their exact size.
+        /// </summary>
+        private static Icon LoadAppIcon(Size size)
         {
             try
             {
-                string path = Path.Combine(root, "icons", "icon-192.png");
-                if (File.Exists(path))
+                using (Stream stream = typeof(NoteForm).Assembly.GetManifestResourceStream("daytime.ico"))
                 {
-                    using (Bitmap bitmap = new Bitmap(path))
+                    if (stream != null)
                     {
-                        return Icon.FromHandle(bitmap.GetHicon());
+                        return new Icon(stream, size);
                     }
                 }
             }
@@ -688,12 +709,7 @@ namespace DaytimeNative
             {
                 if (segment.Length == 0 || segment.StartsWith(".")) return null;
             }
-            if (Array.IndexOf(PublicFiles, relative) >= 0) return relative;
-            if (System.Text.RegularExpressions.Regex.IsMatch(relative, @"^icons/[A-Za-z0-9-]+\.png$"))
-            {
-                return relative;
-            }
-            return null;
+            return Array.IndexOf(PublicFiles, relative) >= 0 ? relative : null;
         }
 
         private static bool IsLoopbackHost(string host)
