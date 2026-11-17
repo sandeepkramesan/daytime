@@ -7,7 +7,7 @@
 (() => {
   "use strict";
 
-  const VERSION = "1.4.0";
+  const VERSION = "1.5.0";
   const core = window.DaytimeCore;
   const $ = (selector, scope = document) => scope.querySelector(selector);
 
@@ -21,9 +21,9 @@
     sunset: $("#sunsetTime"),
     location: $("#locationButton"),
     sunStatus: $("#sunStatus"),
-    prevWeek: $("#prevWeek"),
-    nextWeek: $("#nextWeek"),
-    weekDays: $("#weekDays"),
+    prevMonth: $("#prevMonth"),
+    nextMonth: $("#nextMonth"),
+    monthDays: $("#monthDays"),
     heading: $("#agendaHeading"),
     todayButton: $("#todayButton"),
     calendarLink: $("#calendarLink"),
@@ -356,14 +356,28 @@
     }
   }
 
+  const LOCATION_LABELS = {
+    idle: "Use this device's location for sunrise and sunset",
+    locating: "Finding your location",
+    ready: "Refresh location",
+    retry: "Try the location again",
+  };
+
+  function setLocationButton(mode) {
+    const label = LOCATION_LABELS[mode] || LOCATION_LABELS.idle;
+    elements.location.disabled = mode === "locating";
+    elements.location.classList.toggle("spin", mode === "locating");
+    elements.location.setAttribute("aria-label", label);
+    elements.location.title = label;
+  }
+
   function requestLocation() {
     if (!navigator.geolocation) {
       elements.sunStatus.textContent = "LOCATION UNAVAILABLE";
       return;
     }
 
-    elements.location.disabled = true;
-    elements.location.textContent = "LOCATING…";
+    setLocationButton("locating");
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -371,15 +385,13 @@
         const longitude = position.coords.longitude;
         state.location = { latitude, longitude, source: "device", city: null };
         writeSavedLocation(latitude, longitude);
-        elements.location.disabled = false;
-        elements.location.textContent = "REFRESH LOCATION";
+        setLocationButton("ready");
         renderSunTimes();
         resolveCity(state.location);
         announce("Sunrise and sunset updated for this location.");
       },
       (error) => {
-        elements.location.disabled = false;
-        elements.location.textContent = "TRY AGAIN";
+        setLocationButton("retry");
         elements.sunStatus.textContent =
           error.code === error.PERMISSION_DENIED ? "ALLOW LOCATION ACCESS" : "LOCATION UNAVAILABLE";
       },
@@ -412,20 +424,30 @@
     elements.weekLabels.replaceChildren(fragment);
   }
 
-  function renderWeek() {
-    const weekStart = core.startOfWeek(state.selectedDate, state.weekStartsOn);
-    const selectedKey = core.localDateKey(state.selectedDate);
+  /**
+   * The whole month of the selected day, in rows of seven that start on the
+   * configured first day of the week. Days from the neighbouring months fill
+   * the first and last rows and stay clickable.
+   */
+  function renderMonth() {
+    const selected = state.selectedDate;
+    const selectedKey = core.localDateKey(selected);
+    const monthStart = new Date(selected.getFullYear(), selected.getMonth(), 1);
+    const gridStart = core.startOfWeek(monthStart, state.weekStartsOn);
+    const daysInMonth = new Date(selected.getFullYear(), selected.getMonth() + 1, 0).getDate();
+    const leading = Math.round((monthStart - gridStart) / 86400000);
+    const cells = Math.ceil((leading + daysInMonth) / 7) * 7;
     const fragment = document.createDocumentFragment();
 
-    for (let index = 0; index < 7; index += 1) {
-      const date = core.addDays(weekStart, index);
+    for (let index = 0; index < cells; index += 1) {
+      const date = core.addDays(gridStart, index);
       const key = core.localDateKey(date);
       const button = document.createElement("button");
       const isToday = key === state.todayKey;
       const isSelected = key === selectedKey;
 
       button.type = "button";
-      button.className = "week-day";
+      button.className = "month-day";
       button.dataset.date = key;
       button.textContent = formatters.day.format(date);
       button.setAttribute(
@@ -433,6 +455,7 @@
         `${longDay(date)}${isToday ? ", today" : ""}${isSelected && !isToday ? ", selected" : ""}`
       );
 
+      if (date.getMonth() !== selected.getMonth()) button.classList.add("is-outside");
       if (isToday) {
         button.classList.add("is-today");
         button.setAttribute("aria-current", "date");
@@ -441,18 +464,18 @@
         button.classList.add("is-selected");
         button.setAttribute("aria-pressed", "true");
       }
-      // Roving tabindex keeps the strip to a single tab stop.
+      // Roving tabindex keeps the grid to a single tab stop.
       button.tabIndex = isSelected ? 0 : -1;
 
       fragment.append(button);
     }
 
-    elements.weekDays.replaceChildren(fragment);
+    elements.monthDays.replaceChildren(fragment);
   }
 
   function focusSelectedDay() {
     const key = core.localDateKey(state.selectedDate);
-    const button = $(`[data-date="${key}"]`, elements.weekDays);
+    const button = $(`[data-date="${key}"]`, elements.monthDays);
     button?.focus({ preventScroll: true });
   }
 
@@ -465,7 +488,7 @@
 
     state.selectedDate = next;
     renderHero();
-    renderWeek();
+    renderMonth();
     renderHeading();
 
     if (isConnected()) {
@@ -480,8 +503,16 @@
     if (focusDay) focusSelectedDay();
   }
 
-  function shiftWeek(days) {
-    selectDate(core.addDays(state.selectedDate, days));
+  /** Same day number in the next/previous month, clamped (31 Jan -> 28/29 Feb). */
+  function addMonths(date, amount) {
+    const target = new Date(date.getFullYear(), date.getMonth() + amount, 1);
+    const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    target.setDate(Math.min(date.getDate(), lastDay));
+    return target;
+  }
+
+  function shiftMonth(amount) {
+    selectDate(addMonths(state.selectedDate, amount));
   }
 
   /* ------------------------------------------------------------------ *
@@ -1213,7 +1244,7 @@
     writeSavedLocation(null);
     state.location = readConfiguredLocation(config.location);
     resolveCity(state.location);
-    elements.location.textContent = "USE LOCATION";
+    setLocationButton("idle");
     renderSunTimes();
     renderAbout();
     announce("Location forgotten.");
@@ -1232,31 +1263,38 @@
     if (state.connectView === "working") state.connecting = false;
   });
 
-  elements.weekDays.addEventListener("click", (event) => {
+  elements.monthDays.addEventListener("click", (event) => {
     const button = event.target.closest("button[data-date]");
     if (!button) return;
     const date = parseDateKey(button.dataset.date);
     if (date) selectDate(date, { focusDay: true });
   });
 
-  elements.weekDays.addEventListener("keydown", (event) => {
+  elements.monthDays.addEventListener("keydown", (event) => {
     const button = event.target.closest("button[data-date]");
     if (!button) return;
+    const from = parseDateKey(button.dataset.date) || new Date();
 
     if (event.key === "Home") {
       event.preventDefault();
       selectDate(core.startOfLocalDay(new Date()), { focusDay: true });
       return;
     }
+    if (event.key === "PageUp" || event.key === "PageDown") {
+      event.preventDefault();
+      selectDate(addMonths(from, event.key === "PageUp" ? -1 : 1), { focusDay: true });
+      return;
+    }
 
-    const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+    const steps = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 7, ArrowUp: -7 };
+    const delta = steps[event.key];
     if (!delta) return;
     event.preventDefault();
-    selectDate(core.addDays(parseDateKey(button.dataset.date) || new Date(), delta), { focusDay: true });
+    selectDate(core.addDays(from, delta), { focusDay: true });
   });
 
-  elements.prevWeek.addEventListener("click", () => shiftWeek(-7));
-  elements.nextWeek.addEventListener("click", () => shiftWeek(7));
+  elements.prevMonth.addEventListener("click", () => shiftMonth(-1));
+  elements.nextMonth.addEventListener("click", () => shiftMonth(1));
   elements.todayButton.addEventListener("click", () => {
     selectDate(core.startOfLocalDay(new Date()), { focusDay: true });
   });
@@ -1301,7 +1339,7 @@
       announce(`A new day. ${longDay(state.selectedDate)}.`);
     }
     renderWeekLabels();
-    renderWeek();
+    renderMonth();
   }
 
   function clearOldServiceWorkers() {
@@ -1361,13 +1399,11 @@
 
     renderHero();
     renderWeekLabels();
-    renderWeek();
+    renderMonth();
     renderHeading();
     renderWelcome();
     resolveCity(state.location);
-    if (state.location && state.location.source === "saved") {
-      elements.location.textContent = "REFRESH LOCATION";
-    }
+    setLocationButton(state.location ? "ready" : "idle");
     wireDesktopShell();
 
     document.addEventListener("visibilitychange", () => {

@@ -59,8 +59,8 @@ button { color: inherit; }
   min-height: 460px;
   max-width: calc(100vw - 16px);
   max-height: calc(100dvh - 16px);
-  padding: 29px 19px 20px;
-  overflow: auto;
+  padding: 26px 19px 18px;
+  overflow: hidden;
   resize: both;
   container: daytime / size;
   border: 1px solid var(--line);
@@ -91,6 +91,24 @@ button { color: inherit; }
 .icon-button svg { width: 17px; fill: none; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
 .icon-button:disabled { cursor: progress; opacity: .6; }
 
+.mini-button {
+  display: grid;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #93a6b9;
+  cursor: pointer;
+  transition: background .2s, color .2s;
+}
+.mini-button:hover { background: var(--surface-raised); color: #fff; }
+.mini-button:disabled { cursor: progress; opacity: .7; }
+.mini-button svg { width: 13px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
 .date-hero { position: relative; display: flex; align-items: flex-end; justify-content: space-between; min-height: 169px; padding: 20px 0 12px; }
 .day-block { min-width: 0; }
 .weekday { margin: 0 0 2px; color: #8fa0b1; font-size: 14px; }
@@ -105,34 +123,17 @@ button { color: inherit; }
 .sun-row { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; white-space: nowrap; }
 .sun-row span { color: #8794a0; font-size: 9px; letter-spacing: .08em; }
 .sun-row strong { color: #f0f0f0; font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
-.sun-location {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  margin: 2px -4px 0 0;
-  padding: 3px 4px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: #a3b0bd;
-  font-size: 9px;
-  letter-spacing: .04em;
-  text-align: right;
-  cursor: pointer;
-}
-.sun-location:hover { background: var(--surface-raised); color: #fff; }
-.sun-location:disabled { cursor: progress; opacity: .65; }
-.sun-status { max-width: 100%; overflow: hidden; color: var(--quiet); font-size: 9px; letter-spacing: .06em; text-overflow: ellipsis; white-space: nowrap; }
+.sun-location-row { display: flex; align-items: center; justify-content: flex-end; gap: 2px; width: max-content; max-width: 136px; margin-right: -5px; }
+.sun-status { min-width: 0; max-width: 100%; overflow: hidden; color: var(--quiet); font-size: 9px; letter-spacing: .05em; text-overflow: ellipsis; white-space: nowrap; }
 
-.week { margin-top: 14px; }
-.week-row { display: flex; align-items: center; gap: 2px; }
-.week-grid { flex: 1; min-width: 0; }
-.week-nav {
+.calendar { display: flex; align-items: center; gap: 2px; margin-top: 10px; }
+.month-grid { flex: 1; min-width: 0; }
+.month-nav {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
   width: 24px;
-  height: 34px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: 10px;
@@ -140,33 +141,38 @@ button { color: inherit; }
   color: #7f8b98;
   cursor: pointer;
 }
-.week-nav svg { width: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.week-nav:hover { background: var(--surface-raised); color: #fff; }
+.month-nav svg { width: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.month-nav:hover { background: var(--surface-raised); color: #fff; }
 
-.week-labels, .week-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); justify-items: center; align-items: center; }
-.week-labels { margin-bottom: 6px; color: #8292a3; font-size: 10px; }
-.week-days button {
+.week-labels, .month-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); justify-items: center; align-items: center; }
+.week-labels { margin-bottom: 3px; color: #8292a3; font-size: 10px; }
+.month-days { row-gap: 2px; }
+.month-days button {
   width: 100%;
-  max-width: 46px;
-  height: 34px;
+  max-width: 36px;
+  height: 26px;
+  padding: 0;
   border: 0;
-  border-radius: 20px;
+  border-radius: 13px;
   background: transparent;
   color: #eee;
-  font-size: 13px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
-.week-days button:hover { background: #1d1d1d; }
+.month-days button:hover { background: #1d1d1d; }
+/* Days from the previous/next month fill the first and last rows, quietly. */
+.month-days button.is-outside { color: #4d4d4d; }
 /* Today is the white pill the design calls for; a selected other day is a ring. */
-.week-days button.is-today { background: var(--text); color: #111; font-weight: 600; }
-.week-days button.is-selected:not(.is-today) { box-shadow: inset 0 0 0 1.5px var(--text); color: #fff; }
-.week-days button.is-today:focus-visible,
-.week-days button.is-selected:focus-visible { outline-offset: 3px; }
+.month-days button.is-today { background: var(--text); color: #111; font-weight: 600; }
+.month-days button.is-selected:not(.is-today) { box-shadow: inset 0 0 0 1.5px var(--text); color: #fff; }
+.month-days button.is-today:focus-visible,
+.month-days button.is-selected:focus-visible { outline-offset: 3px; }
 
-.agenda { margin-top: 30px; }
+.agenda { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; margin-top: 18px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 30px; padding-bottom: 9px; border-bottom: 1px solid #272727; }
 .section-heading h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: .14em; }
-.heading-actions { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.heading-actions { display: flex; align-items: center; gap: 8px; min-width: 0; margin-right: -4px; }
 .today-link {
   flex: 0 0 auto;
   min-height: 24px;
@@ -184,7 +190,21 @@ button { color: inherit; }
 .calendar-link { color: #93a6b9; font-size: 11px; text-decoration: none; white-space: nowrap; }
 .calendar-link:hover { color: #fff; }
 
-.agenda-content { padding-top: 23px; }
+.agenda-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-right: -10px;
+  padding: 14px 6px 4px 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+/* A thin scrollbar, visible in the desktop note too, when a day overflows. */
+/* "html.shell" is repeated so this beats the note's rule that hides scrollbars. */
+.agenda-content::-webkit-scrollbar,
+html.shell .agenda-content::-webkit-scrollbar { width: 4px !important; }
+.agenda-content::-webkit-scrollbar-track { background: transparent; }
+.agenda-content::-webkit-scrollbar-thumb { border-radius: 4px; background: #3a3a3a; }
+.agenda-content::-webkit-scrollbar-thumb:hover { background: #5a5a5a; }
 .connect-card, .status-card {
   padding: 22px 19px 20px;
   border: 1px solid #2b2b2b;
@@ -234,7 +254,7 @@ button { color: inherit; }
 .error-card .status-tag { color: #e87982; }
 .error-card p { max-width: 100%; }
 
-.widget-footer { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: auto; padding-top: 25px; }
+.widget-footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 4px; padding-top: 12px; }
 .privacy-note { margin: 0; color: var(--quiet); font-size: 10px; letter-spacing: .1em; text-align: center; }
 .privacy-note span { padding: 0 5px; color: var(--red); }
 .info-button {
@@ -333,9 +353,9 @@ button { color: inherit; }
   .clock { font-size: 17px; }
   .widget.uses-12h .clock { font-size: 15px; }
   .sun-panel { min-width: 88px; }
-  .week-nav { width: 20px; }
-  .week-days button { height: 31px; font-size: 12px; }
-  .agenda { margin-top: 25px; }
+  .month-nav { width: 20px; }
+  .month-days button { height: 24px; font-size: 11px; }
+  .agenda { margin-top: 14px; }
   .connect-card { padding: 19px 16px; }
 }
 
@@ -343,9 +363,10 @@ button { color: inherit; }
   .topbar { min-height: 36px; }
   .date-hero { min-height: 132px; padding-top: 10px; }
   .day-number { font-size: 78px; }
-  .week { margin-top: 3px; }
-  .agenda { margin-top: 16px; }
-  .agenda-content { padding-top: 12px; }
+  .calendar { margin-top: 3px; }
+  .month-days button { height: 22px; }
+  .agenda { margin-top: 10px; }
+  .agenda-content { padding-top: 10px; }
   .connect-card, .status-card { padding-top: 14px; padding-bottom: 14px; }
   .widget-footer { padding-top: 9px; }
 }
@@ -353,9 +374,9 @@ button { color: inherit; }
 @container daytime (max-height: 470px) {
   .date-hero { min-height: 116px; }
   .day-number { font-size: 66px; }
-  .week { margin-top: 0; }
-  .week-labels { margin-bottom: 2px; }
-  .agenda { margin-top: 11px; }
+  .calendar { margin-top: 0; }
+  .week-labels { margin-bottom: 1px; }
+  .agenda { margin-top: 8px; }
   .agenda-content { padding-top: 8px; }
   .connect-card p { display: none; }
   .connect-card .action-button { margin-top: 10px; }
@@ -367,9 +388,9 @@ button { color: inherit; }
   .widget { min-height: calc(100dvh - 16px); padding-top: 20px; padding-bottom: 14px; }
   .date-hero { min-height: 143px; padding-top: 12px; }
   .day-number { font-size: 88px; }
-  .week { margin-top: 7px; }
-  .agenda { margin-top: 21px; }
-  .agenda-content { padding-top: 17px; }
+  .calendar { margin-top: 6px; }
+  .agenda { margin-top: 14px; }
+  .agenda-content { padding-top: 12px; }
   .connect-card { padding-top: 17px; padding-bottom: 16px; }
   .widget-footer { padding-top: 14px; }
 }
@@ -407,6 +428,9 @@ html.shell .widget {
   resize: none !important;
 }
 html.shell .shell-only { display: grid !important; }
+html.shell .topbar { min-height: 36px; }
+html.shell .topbar .icon-button { width: 34px; height: 34px; }
+html.shell .date-hero { min-height: 150px; padding-top: 10px; }
 html.shell .privacy-note { font-size: 9px; letter-spacing: .08em; }
 html.shell .topbar { gap: 10px; }
 html.shell .topbar,

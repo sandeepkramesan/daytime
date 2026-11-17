@@ -1,6 +1,6 @@
 # daytime
 
-A desktop sticky note for Windows: live clock, date, sunrise and sunset, a week strip, and the day's Google Calendar events and tasks. Nothing design language — black glass, thin lines, big light numerals, one red accent.
+A desktop sticky note for Windows: live clock, date, sunrise and sunset, a month calendar, and the day's Google Calendar events and tasks. Nothing design language — black glass, thin lines, big light numerals, one red accent.
 
 It is a small (about 100 KB) native app (WinForms + the Edge **WebView2** runtime that ships with Windows 10/11). No Electron, no Node, no installer framework.
 
@@ -36,8 +36,10 @@ Requirements: Windows 10 or 11 with the **WebView2 runtime** (preinstalled on Wi
 - It has no taskbar button and stays out of Alt+Tab; reach it from the tray icon.
 - **—** hides it to the tray; click the tray icon to bring it back. **×** quits.
 - Tray menu: show/hide, always on top, start with Windows, reset position, quit.
-- **‹ ›** move a week at a time; click a day to see its agenda; **Today** jumps back.
-- **Use location** calculates sunrise and sunset on the device.
+- The **month calendar** shows the whole month; **‹ ›** move a month at a time, and clicking a day shows its agenda. **Today** jumps back. With the keyboard: arrows move by day or week, Page Up/Down by month, Home to today.
+- The day's events and tasks scroll on their own when they don't fit; the rest of the note stays put.
+- **↻** next to *Google Calendar* refreshes the day's events.
+- **↻** under sunrise and sunset uses (or refreshes) this PC's location; the times are calculated on the device.
 - Diagnostics: `desktop\boot.log` (or `boot.log` next to the installed exe).
 
 ---
@@ -69,7 +71,7 @@ The Calendar scopes are *sensitive* in Google's terms: until the OAuth app is ve
 | "Google sign-in couldn't load" | Check the connection to `accounts.google.com`, then Try again |
 | Only the primary calendar shows | Reconnect and allow access to the list of your calendars |
 | "Google hasn't verified this app" | Expected until verification; test users can choose Advanced → continue |
-| Sunrise stays `--:--` | Click **Use location**, or set `location` in `config.js` |
+| Sunrise stays `--:--` | Click **↻** under the sunset time, or set `location` in `config.js` |
 | Note does not appear | Read `desktop\boot.log`; launch from Explorer rather than a sandboxed terminal |
 
 ---
@@ -80,7 +82,7 @@ The Calendar scopes are *sensitive* in Google's terms: until the OAuth app is ve
 
 - `googleClientId` — default OAuth client ID.
 - `timeFormat` — `"locale"`, `"24h"` or `"12h"`.
-- `weekStart` — `"locale"` (follows your region), `"sunday"`, `"monday"` or `"saturday"`.
+- `weekStart` — first column of the month calendar: `"locale"` (follows your region), `"sunday"`, `"monday"` or `"saturday"`.
 - `location` — fixed `{ latitude, longitude }` so sunrise/sunset work without asking.
 
 ---
@@ -90,7 +92,7 @@ The Calendar scopes are *sensitive* in Google's terms: until the OAuth app is ve
 - The Google token lives in memory only; events and tasks are never stored. Access is read-only.
 - The note's built-in server listens on `127.0.0.1` only, serves only the app's own files, and refuses requests addressed to any other host name.
 - A Content-Security-Policy limits scripts to the app and Google sign-in, and network requests to the Google APIs it reads.
-- **Location** is requested only when you click **Use location**. A copy rounded to ~1 km is remembered on this PC; **About → Forget location** removes it. The nearest city comes from `cities.js`, a bundled extract of [GeoNames](https://www.geonames.org/) `cities15000` (CC BY 4.0). Nothing is sent to a geocoding service.
+- **Location** is requested only when you click the location **↻**. A copy rounded to ~1 km is remembered on this PC; **About → Forget location** removes it. The nearest city comes from `cities.js`, a bundled extract of [GeoNames](https://www.geonames.org/) `cities15000` (CC BY 4.0). Nothing is sent to a geocoding service.
 - No web fonts or analytics: the UI uses Inter if installed, otherwise Segoe UI.
 
 ---

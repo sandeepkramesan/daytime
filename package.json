@@ -1,6 +1,6 @@
 {
   "name": "daytime",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "daytime: a desktop sticky-note clock and calendar for Windows, with sunrise/sunset and read-only Google Calendar and Tasks.",
   "license": "MIT",

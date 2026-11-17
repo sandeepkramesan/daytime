@@ -36,7 +36,7 @@ function clickAction(harness, attribute, action) {
 }
 
 function clickDay(harness, date) {
-  harness.query("#weekDays").dispatch("click", {
+  harness.query("#monthDays").dispatch("click", {
     target: { closest: () => ({ dataset: { date: localKey(date) } }) },
   });
 }
@@ -67,7 +67,7 @@ function dayFetch(dayKey) {
   };
 }
 
-test("starts on today with a seven-day strip", () => {
+test("starts on today", () => {
   const harness = createHarness();
   assert.equal(harness.query("#agendaHeading").textContent, "TODAY");
   assert.match(harness.query("#dayNumber").textContent, /^\d+$/);
@@ -308,10 +308,10 @@ test("tasks are requested for the selected day only", async () => {
   assert.match(harness.content.innerHTML, /Pay rent/);
 });
 
-test("the week strip can start on Monday", () => {
+test("the month grid can start on Monday", () => {
   const harness = createHarness({ config: { weekStart: "monday" } });
   const labels = harness.query("#weekLabels").children.map((child) => child.textContent);
-  const days = harness.query("#weekDays").children;
+  const days = harness.query("#monthDays").children;
 
   assert.equal(labels.length, 7);
   assert.equal(new Date(`${days[0].dataset.date}T00:00:00`).getDay(), 1);
@@ -378,4 +378,32 @@ test("switch account asks Google for the account chooser and loads the new accou
   assert.ok(!harness.calls.includes("shell:signout"));
   assert.match(harness.content.innerHTML, /second@example\.com meeting/);
   assert.doesNotMatch(harness.content.innerHTML, /first@example\.com/);
+});
+
+test("the month grid shows every day of the selected month in whole weeks", () => {
+  const harness = createHarness();
+  const today = new Date();
+  const days = harness.query("#monthDays").children;
+  const inMonth = days.filter((day) => !day.classList.contains("is-outside"));
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+
+  assert.equal(days.length % 7, 0);
+  assert.ok(days.length >= 28 && days.length <= 42);
+  assert.equal(inMonth.length, daysInMonth);
+  assert.equal(inMonth[0].dataset.date, localKey(new Date(today.getFullYear(), today.getMonth(), 1)));
+  assert.equal(days.filter((day) => day.classList.contains("is-today")).length, 1);
+});
+
+test("month arrows move a month and clamp the day (31 Jan -> end of Feb)", () => {
+  const harness = createHarness();
+  clickDay(harness, new Date(2027, 0, 31));
+  harness.query("#nextMonth").dispatch("click", {});
+
+  assert.equal(harness.query("#month").textContent, new Intl.DateTimeFormat(undefined, { calendar: "gregory", month: "long" }).format(new Date(2027, 1, 1)));
+  assert.equal(harness.query("#dayNumber").textContent, "28");
+
+  harness.query("#prevMonth").dispatch("click", {});
+  assert.equal(harness.query("#dayNumber").textContent, "28");
+  const selected = harness.query("#monthDays").children.find((day) => day.classList.contains("is-selected"));
+  assert.equal(selected.dataset.date, "2027-01-28");
 });

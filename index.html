@@ -26,9 +26,6 @@
           <button class="icon-button shell-only" id="backButton" type="button" aria-label="Send daytime to the back" title="Send to back" hidden>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>
           </button>
-          <button class="icon-button" id="refreshButton" type="button" aria-label="Refresh calendar" title="Refresh calendar">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg>
-          </button>
           <button class="icon-button shell-only" id="closeButton" type="button" aria-label="Close daytime" title="Close" hidden>
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
           </button>
@@ -48,26 +45,28 @@
         <div class="sun-panel" aria-label="Sunrise and sunset">
           <div class="sun-row"><span>SUNRISE</span><strong id="sunriseTime">--:--</strong></div>
           <div class="sun-row"><span>SUNSET</span><strong id="sunsetTime">--:--</strong></div>
-          <span class="sun-status" id="sunStatus">LOCATION NEEDED</span>
-          <button class="sun-location" id="locationButton" type="button" aria-label="Use this device's location to calculate sunrise and sunset">USE LOCATION</button>
+          <div class="sun-location-row">
+            <span class="sun-status" id="sunStatus">LOCATION NEEDED</span>
+            <button class="mini-button" id="locationButton" type="button" aria-label="Use this device's location for sunrise and sunset" title="Use this device's location">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg>
+            </button>
+          </div>
         </div>
       </section>
 
-      <nav class="week" id="week" aria-label="Choose a day">
-        <div class="week-row">
-          <button class="week-nav" id="prevWeek" type="button" aria-label="Previous week">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
-          </button>
-          <div class="week-grid">
-            <div class="week-labels" id="weekLabels" aria-hidden="true">
-              <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
-            </div>
-            <div class="week-days" id="weekDays" role="group" aria-label="Days of the week"></div>
+      <nav class="calendar" id="calendar" aria-label="Choose a day">
+        <button class="month-nav" id="prevMonth" type="button" aria-label="Previous month" title="Previous month">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+        </button>
+        <div class="month-grid">
+          <div class="week-labels" id="weekLabels" aria-hidden="true">
+            <span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span>
           </div>
-          <button class="week-nav" id="nextWeek" type="button" aria-label="Next week">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
-          </button>
+          <div class="month-days" id="monthDays" role="group" aria-label="Days of the month"></div>
         </div>
+        <button class="month-nav" id="nextMonth" type="button" aria-label="Next month" title="Next month">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>
+        </button>
       </nav>
 
       <section class="agenda" aria-labelledby="agendaHeading">
@@ -76,6 +75,9 @@
           <div class="heading-actions">
             <button class="today-link" id="todayButton" type="button" hidden>Today</button>
             <a class="calendar-link" id="calendarLink" href="https://calendar.google.com/" target="_blank" rel="noreferrer noopener">Google Calendar</a>
+            <button class="mini-button" id="refreshButton" type="button" aria-label="Refresh calendar" title="Refresh calendar">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2"/></svg>
+            </button>
           </div>
         </div>
         <div class="agenda-content" id="agendaContent">
